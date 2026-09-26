@@ -1,0 +1,124 @@
+# Builds and publishes the static site to GitHub Pages.
+#
+#   daily (schedule)   full: fetch new sessions -> Claude writes their stories -> save DB -> publish
+#   push to main       publish-only: re-export with the latest code + story corrections (no Claude calls)
+#   manual (Actions tab -> "Run workflow") pick the mode, cap or force story writing
+#
+# The SQLite database lives as an asset on the "db-snapshot" release (created on first run), so the
+# stories Claude writes are kept between runs and never regenerated unless their data changes.
+#
+# One-time setup: Settings -> Secrets and variables -> Actions -> add secret ANTHROPIC_API_KEY,
+# and Settings -> Pages -> Source: "GitHub Actions". Optional repository variables:
+# F1_YEAR (default 2026), MAX_NEW_STORIES (per-run cap on Claude calls, default 800).
+name: Site
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  push:
+    branches: [main]
+    paths: ["stories/**", "frontend/**", "f1tracker/**", "scripts/**", ".github/workflows/site.yml"]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = new data + stories; stories-only = write missing stories; publish-only = just rebuild the site"
+        type: choice
+        options: [full, stories-only, publish-only]
+        default: full
+      max_new_stories:
+        description: "Cap on Claude calls this run (blank = repository default)"
+        required: false
+      force_stories:
+        description: "Rewrite every story even if its data is unchanged (expensive)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # the db-snapshot release
+  pages: write
+  id-token: write
+
+concurrency:
+  group: site
+  cancel-in-progress: false # never cut off a run that is saving the database
+
+env:
+  F1_YEAR: ${{ vars.F1_YEAR || '2026' }}
+  MODE: ${{ github.event_name == 'push' && 'publish-only' || inputs.mode || 'full' }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend --no-fund --no-audit
+
+      - name: Restore database
+        run: |
+          mkdir -p data
+          if gh release view db-snapshot >/dev/null 2>&1; then
+            # a snapshot exists: failing to fetch it must stop the run (never overwrite it with a fresh DB)
+            gh release download db-snapshot --pattern f1.db.gz --dir data --clobber
+            gunzip -f data/f1.db.gz
+            ls -lh data/f1.db
+          else
+            echo "No saved database yet - starting fresh."
+          fi
+
+      - name: Process data and write stories
+        if: env.MODE != 'publish-only'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          args="--year $F1_YEAR --time-budget-min 270 --max-new-stories ${{ inputs.max_new_stories || vars.MAX_NEW_STORIES || '800' }}"
+          [ "$MODE" = "stories-only" ] && args="$args --no-ingest"
+          [ "${{ inputs.force_stories }}" = "true" ] && args="$args --force-stories"
+          python scripts/run_pipeline.py $args
+
+      - name: Save database
+        if: always() && env.MODE != 'publish-only' && hashFiles('data/f1.db') != ''
+        run: |
+          python -c "import sqlite3; c = sqlite3.connect('data/f1.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.execute('VACUUM'); c.close()"
+          gzip -kf data/f1.db
+          gh release view db-snapshot >/dev/null 2>&1 || gh release create db-snapshot --prerelease --title "Database snapshot" \
+            --notes "Pipeline database (data + stored AI stories), updated by the Site workflow. Don't delete: stories would have to be regenerated."
+          gh release upload db-snapshot data/f1.db.gz --clobber
+
+      - name: Build site
+        env:
+          VITE_STATIC: "1"
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_GITHUB_REPO: ${{ github.repository }}
+          VITE_GITHUB_BRANCH: ${{ github.event.repository.default_branch }}
+        run: npm run build --prefix frontend
+
+      - name: Export data
+        run: python scripts/export_static.py --out frontend/dist/data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

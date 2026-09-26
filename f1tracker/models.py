@@ -369,3 +369,29 @@ class TrackOutline(Base):
     ref_distance_m_json: Mapped[str | None] = mapped_column(Text)  # cumulative meters, parallel to points/geo_points
     ref_elapsed_ms_json: Mapped[str | None] = mapped_column(Text)  # ms since lap start, parallel to points/geo_points
     turns_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # [{number, index, distance_m, apex_speed_kph}, ...]
+
+
+class TurnDeltaCache(Base):
+    """Precomputed turn-by-turn deltas (they need OpenF1 telemetry, so they're fetched once, not per request)."""
+
+    __tablename__ = "turn_delta_cache"
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
+    driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), primary_key=True)
+    payload_json: Mapped[str | None] = mapped_column(Text)  # compute_turn_deltas() output; null when it failed
+    error: Mapped[str | None] = mapped_column(Text)  # why it couldn't be computed (not retried unless forced)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class StoryEdit(Base):
+    """A human correction of an AI story, synced from stories/<story_key>.md (the file is the source of truth).
+
+    The AI text stays untouched in its own table; the edit is layered on top when the story is shown.
+    """
+
+    __tablename__ = "story_edits"
+    story_key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)  # replaces narrative/arc/comparison text
+    analysis_text: Mapped[str | None] = mapped_column(Text)  # replaces strategy analysis (driver session stories only)
+    note: Mapped[str | None] = mapped_column(Text)  # optional "why this was changed"
+    based_on_generated_at: Mapped[datetime | None] = mapped_column(DateTime)  # AI version the edit corrected
+    synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

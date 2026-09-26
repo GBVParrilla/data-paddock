@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, eventApi, SESSION_LABEL, type Driver, type SessionRow } from '../api/client'
 import { ComparePanel } from '../components/ComparePanel'
 import { Leaderboard } from '../components/Leaderboard'
@@ -36,6 +36,14 @@ export function TrackDetail() {
   const [satAdjust, setSatAdjust] = useState<SatAdjust>(() => loadSatAdjust(eventId))
 
   useEffect(() => setEvent(eventId), [eventId, setEvent])
+  // deep links (used by "Flag a problem"): ?session=<id>&drivers=<id>,<id>
+  const [search] = useSearchParams()
+  useEffect(() => {
+    const sid = Number(search.get('session'))
+    if (sid) setSession(sid)
+    for (const d of (search.get('drivers') ?? '').split(',').map(Number).filter(Boolean).slice(0, 2)) toggleDriver(d)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId])
   useEffect(() => setSatAdjust(loadSatAdjust(eventId)), [eventId])
   const updateSatAdjust = (patch: Partial<SatAdjust>) => {
     setSatAdjust((prev) => {
@@ -212,7 +220,7 @@ export function TrackDetail() {
           {selected.map((d, i) => <TurnTimesPanel key={d.id} sessionId={sessionId} driver={d} accent={highlightColors[i]} />)}
         </section>
       )}
-      {sessionId !== null && selected.length === 2 && <ComparePanel sessionId={sessionId} a={selected[0]} b={selected[1]} colors={highlightColors} />}
+      {sessionId !== null && selected.length === 2 && <ComparePanel sessionId={sessionId} eventId={eventId} a={selected[0]} b={selected[1]} colors={highlightColors} />}
     </div>
     </div>
   )

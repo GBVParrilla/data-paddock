@@ -1,0 +1,27 @@
+name: Flag a story
+description: Something in an AI-written race story is wrong or misleading.
+title: "Story issue: "
+labels: ["story-flag"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! The site's stories are written by Claude from timing data, and the editor reviews flags like this one.
+        The fields below were filled in from the story you clicked on.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong?
+      description: Quote the sentence if you can, and say what the data or the race actually showed.
+    validations:
+      required: true
+  - type: input
+    id: story
+    attributes:
+      label: Story key
+      description: Filled in automatically. The editor's correction goes in stories/<story key>.md.
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: Filled in automatically. It opens the story with the Edit buttons showing.

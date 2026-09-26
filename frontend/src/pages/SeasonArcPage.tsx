@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
-import { ErrorNote, LoadingNote, RecapAndAnalysis } from '../components/NarrativePanel'
+import { ErrorNote, LoadingNote, RecapAndAnalysis, StoryFooter } from '../components/NarrativePanel'
 import { useFetch } from '../hooks/useFetch'
 
 export function SeasonArcPage() {
   const year = Number(useParams().year)
   const drivers = useFetch((s) => api.drivers(s), [])
-  const [subjectType, setSubjectType] = useState<'driver' | 'team'>('driver')
-  const [subjectId, setSubjectId] = useState<string>('')
+  const [search] = useSearchParams()  // deep link: ?type=team&id=Alpine
+  const [subjectType, setSubjectType] = useState<'driver' | 'team'>(search.get('type') === 'team' ? 'team' : 'driver')
+  const [subjectId, setSubjectId] = useState<string>(search.get('id') ?? '')
   const arc = useFetch((s) => api.seasonArc(year, subjectType, subjectId, s), [year, subjectType, subjectId], subjectId !== '')
   const teams = [...new Set((drivers.data ?? []).map((d) => d.team).filter(Boolean))].sort() as string[]
   const named = (drivers.data ?? []).filter((d) => !d.driver_ref.startsWith('driver_')).sort((a, b) => a.name.localeCompare(b.name))
@@ -26,7 +27,21 @@ export function SeasonArcPage() {
       </div>
       {arc.loading && <LoadingNote what="the season arc" />}
       {arc.error && <ErrorNote error={arc.error} />}
-      {arc.data && <div className="card p-4"><RecapAndAnalysis recap={arc.data.arc_text} meta={`Through round ${arc.data.through_round} · ${arc.data.model_used}`} /></div>}
+      {arc.data && (
+        <div className="card p-4">
+          <RecapAndAnalysis
+            recap={arc.data.arc_text}
+            footer={
+              <StoryFooter
+                info={arc.data}
+                route={`/season/${year}?type=${subjectType}&id=${encodeURIComponent(subjectId)}`}
+                story={{ title: `${year} season · ${subjectType === 'team' ? subjectId : (named.find((d) => String(d.id) === subjectId)?.name ?? subjectId)}`, text: arc.data.arc_text, generatedAt: arc.data.generated_at }}
+                meta={`through round ${arc.data.through_round}`}
+              />
+            }
+          />
+        </div>
+      )}
     </div>
   )
 }

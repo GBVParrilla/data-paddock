@@ -31,6 +31,16 @@ NARRATIVE_MAX_TOKENS = 4096
 # Bump when prompts change so cached narratives regenerate.
 PROMPT_VERSION = "1"
 
+# --- Story pipeline + human edits ----------------------------------------------
+# Stories are written by the pipeline right after a session is processed, stored in the DB,
+# and only displayed afterwards. Human corrections live as Markdown files in STORIES_DIR.
+STORIES_DIR = Path(os.environ.get("F1_STORIES_DIR", PROJECT_ROOT / "stories"))
+# Which sessions get a per-driver story (practice included by default - the site shows every session).
+STORY_SESSION_TYPES = tuple(os.environ.get("F1_STORY_SESSION_TYPES", "FP1,FP2,FP3,SQ,S,Q,R").split(","))
+# Teammate head-to-heads are written for these session types.
+COMPARISON_SESSION_TYPES = tuple(os.environ.get("F1_COMPARISON_SESSION_TYPES", "SQ,S,Q,R").split(","))
+STORY_WORKERS = int(os.environ.get("F1_STORY_WORKERS", "4"))  # parallel Claude calls
+
 
 def anthropic_api_key_present() -> bool:
     """True if ANTHROPIC_API_KEY is set. Never returns the key itself."""
