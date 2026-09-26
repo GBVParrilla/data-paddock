@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --surface-0: #050505;
+  --surface-1: #0d0d0d;
+  --surface-2: #161616;
+  --surface-3: #202020;
+  --text-primary: #f5f5f3;
+  --text-secondary: #b7b6b0;
+  --text-muted: #83827c;
+  --line: #2c2c2a;
+
+  /* F1-red racing accent (a generic racing red, not a reproduction of any logo/mark) */
+  --accent: #e10600;
+  --accent-2: #ff3b30;
+  --accent-dim: #7a0500;
+
+  --series-1: #3987e5;
+  --series-2: #ff8000;
+  --series-muted: #47463f;
+  --spotlight: #00e5a0;
+
+  /* purple / green / yellow / red performance scale (F1 timing-screen convention) */
+  --perf-purple: #c724ff;
+  --perf-green: #00c853;
+  --perf-yellow: #ffd600;
+  --perf-red: #ff1744;
+  --perf-muted: #4a4a47;
+
+  --analysis-bg: #241407;
+  --analysis-border: #ff8f1f;
+  --status-warning: #ffb020;
+  --status-critical: #ff3b30;
+
+  /* tyre compounds (F1 broadcast convention) */
+  --tyre-soft: #ff2e2e;
+  --tyre-medium: #ffd400;
+  --tyre-hard: #f2f2f2;
+  --tyre-inter: #3fae4a;
+  --tyre-wet: #2f6fe0;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  background:
+    radial-gradient(1200px 500px at 50% -10%, rgba(225, 6, 0, 0.10), transparent 60%),
+    var(--surface-0);
+  color: var(--text-primary);
+  font-family: 'Titillium Web', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Titillium Web', ui-sans-serif, system-ui, sans-serif;
+}
+/* Big hero-style headings only - applied explicitly, not to every h1/h2/h3
+   (card titles and driver names read badly in all-caps italic). */
+.display {
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.muted { color: var(--text-secondary); }
+.faint { color: var(--text-muted); }
+.analysis { background: var(--analysis-bg); border-left: 4px solid var(--analysis-border); }
+
+.btn {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  padding-left: 14px;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+.btn[aria-pressed="true"] { background: var(--accent); color: white; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 16px -2px var(--accent); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.f1-header {
+  position: relative;
+  background:
+    repeating-linear-gradient(115deg, rgba(255,255,255,0.03) 0 2px, transparent 2px 26px),
+    linear-gradient(100deg, var(--accent-dim) 0%, var(--surface-1) 38%);
+  border-bottom: 3px solid var(--accent);
+  overflow: hidden;
+}
+.f1-header::after {
+  content: "";
+  position: absolute; inset: 0;
+  background-image: repeating-conic-gradient(#000 0% 25%, transparent 0% 50%);
+  background-size: 14px 14px;
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.checker-strip {
+  height: 6px;
+  background-image: repeating-conic-gradient(var(--text-primary) 0% 25%, transparent 0% 50%);
+  background-size: 12px 12px;
+  opacity: 0.9;
+}
+
+.glow-accent { box-shadow: 0 0 0 1px var(--accent), 0 0 24px -6px var(--accent); }
+
+.stat-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-3); border-radius: 3px; padding: 2px 8px;
+  font-weight: 700; font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase;
+}
+
+::selection { background: var(--accent); color: white; }
