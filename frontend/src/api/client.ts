@@ -191,8 +191,9 @@ async function staticCompare(sessionId: number, a: number, b: number, s?: AbortS
 
 export function fmtMs(ms: number | null | undefined, signed = false): string {
   if (ms === null || ms === undefined) return '–'
-  const sign = ms < 0 ? '-' : signed ? '+' : ''
-  const abs = Math.abs(ms)
+  const r = Math.round(ms) // turn deltas are fractional ms (e.g. 330.8)
+  const sign = r < 0 ? '-' : signed ? '+' : ''
+  const abs = Math.abs(r)
   const m = Math.floor(abs / 60000)
   const s = Math.floor((abs % 60000) / 1000)
   const f = abs % 1000
