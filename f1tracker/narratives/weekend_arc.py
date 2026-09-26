@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..models import Driver, DriverWeekendArc, Event, HeadlinePractice, HeadlineQualifying, HeadlineRace, Session, SessionIngestionState
 from ..util import utcnow
-from .driver_session import get_or_generate_driver_session_narrative
+from .driver_session import plan_driver_session_narrative
+from .edits import driver_session_key, edited_text
 from .inputs import SESSION_LABELS
-from .llm import generate_json, stable_hash
+from .jobs import StoryJob
+from .llm import stable_hash
 from .prompts import SCHEMA_ARC, SYSTEM_WEEKEND_ARC
 
 log = logging.getLogger(__name__)
@@ -30,7 +32,16 @@ def _headline_for(db: OrmSession, session: Session, driver_id: int) -> dict | No
     return {"grid": r.grid_position, "finish": r.finish_position, "points": r.points, "status": r.status} if r else None
 
 
-def get_or_generate_weekend_arc(db: OrmSession, event_id: int, driver_id: int, *, force: bool = False) -> DriverWeekendArc:
+def _existing(db: OrmSession, event_id: int, driver_id: int) -> DriverWeekendArc | None:
+    return db.scalar(select(DriverWeekendArc).where(DriverWeekendArc.event_id == event_id, DriverWeekendArc.driver_id == driver_id))
+
+
+class MissingSessionStory(ValueError):
+    """A session story the arc depends on hasn't been written (and generate_missing was False)."""
+
+
+def plan_weekend_arc(db: OrmSession, event_id: int, driver_id: int, *, force: bool = False, generate_missing: bool = True) -> tuple[DriverWeekendArc | None, StoryJob | None]:
+    """Built from the per-session stories (human-edited versions win, so corrections flow into the arc)."""
     event = db.get(Event, event_id)
     driver = db.get(Driver, driver_id)
     if event is None or driver is None:
@@ -45,22 +56,37 @@ def get_or_generate_weekend_arc(db: OrmSession, event_id: int, driver_id: int, *
         headline = _headline_for(db, s, driver_id)
         if headline is None:
             continue
-        narrative = get_or_generate_driver_session_narrative(db, s.id, driver_id)
-        parts.append({"session": SESSION_LABELS[s.session_type], "session_type": s.session_type, "headline": headline, "recap": narrative.narrative_text})
+        narrative, job = plan_driver_session_narrative(db, s.id, driver_id)
+        if job is not None:
+            if not generate_missing:
+                raise MissingSessionStory(f"session {s.id} story for driver {driver_id} is missing or out of date")
+            narrative = job.run(db)
+        recap = edited_text(db, driver_session_key(db, s.id, driver_id), narrative.narrative_text)
+        parts.append({"session": SESSION_LABELS[s.session_type], "session_type": s.session_type, "headline": headline, "recap": recap})
     if not parts:
         raise ValueError(f"no session data for driver {driver_id} at event {event_id}")
     payload = {"event": event.name, "round": event.round, "sprint_weekend": event.has_sprint, "driver": driver.full_name, "team": driver.team, "sessions": parts}
     h = stable_hash(payload)
-    existing = db.scalar(select(DriverWeekendArc).where(DriverWeekendArc.event_id == event_id, DriverWeekendArc.driver_id == driver_id))
+    existing = _existing(db, event_id, driver_id)
     if existing and existing.input_hash == h and not force:
-        return existing
-    data, model_used = generate_json(SYSTEM_WEEKEND_ARC, "Weekend data (JSON):\n" + json.dumps(payload, indent=1, default=str), SCHEMA_ARC)
-    if existing is None:
-        existing = DriverWeekendArc(event_id=event_id, driver_id=driver_id, arc_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
-        db.add(existing)
-    existing.arc_text = data["arc_text"].strip()
-    existing.generated_at = utcnow()
-    existing.model_used = model_used
-    existing.input_hash = h
-    db.flush()
-    return existing
+        return existing, None
+
+    def save(db: OrmSession, data: dict, model_used: str) -> DriverWeekendArc:
+        row = _existing(db, event_id, driver_id)
+        if row is None:
+            row = DriverWeekendArc(event_id=event_id, driver_id=driver_id, arc_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
+            db.add(row)
+        row.arc_text = data["arc_text"].strip()
+        row.generated_at = utcnow()
+        row.model_used = model_used
+        row.input_hash = h
+        db.flush()
+        return row
+
+    user = "Weekend data (JSON):\n" + json.dumps(payload, indent=1, default=str)
+    return existing, StoryJob(f"weekend arc event={event_id} driver={driver_id}", SYSTEM_WEEKEND_ARC, user, SCHEMA_ARC, save)
+
+
+def get_or_generate_weekend_arc(db: OrmSession, event_id: int, driver_id: int, *, force: bool = False) -> DriverWeekendArc:
+    existing, job = plan_weekend_arc(db, event_id, driver_id, force=force)
+    return existing if job is None else job.run(db)
