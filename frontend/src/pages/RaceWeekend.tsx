@@ -103,6 +103,45 @@ function tilesFor(h: Headline, spot: MidfieldStory | null | undefined, onPick: (
   return tiles
 }
 
+const STORY_TYPE: Record<string, string> = {
+  big_mover: 'Big climb', close_battle: 'Close battle', points_from_deep: 'Points from deep', quali_overperformer: 'Qualifying surprise', long_run_pace: 'Long-run pace',
+}
+
+// runners-up only carry their reason text, so name the storyline from it
+const tagFor = (reason: string) =>
+  /climbed|gained/.test(reason) ? 'Big climb' : /scored from/.test(reason) ? 'Points from deep' : /qualified/.test(reason) ? 'Qualifying'
+    : /long run|long-run/i.test(reason) ? 'Long-run pace' : /behind|ahead of/.test(reason) ? 'Close battle' : 'Midfield story'
+
+/** Midfield and underdog storylines, given the same billing as the podium: the way into a driver's weekend. */
+function BeyondPodium({ spot, drivers, onPick }: { spot: MidfieldStory; drivers: Headline['drivers']; onPick: (id: number) => void }) {
+  const cards = [
+    { id: spot.driver_id, name: spot.driver, reason: spot.reason, tag: STORY_TYPE[spot.story_types[0]] ?? 'Midfield story' },
+    ...spot.runners_up.slice(0, 3).map((r) => ({ id: r.driver_id, name: r.driver, reason: r.reason, tag: tagFor(r.reason) })),
+  ]
+  // the detector writes "Pierre Gasly climbed ... Pierre Gasly finished ..."; drop the repeated name
+  const trim = (name: string, text: string) => text.split(/(?<=\.)\s+/).slice(0, 2).map((t) => t.replace(new RegExp(`^${name} `), '')).map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(' ')
+  return (
+    <section className="panel" aria-label="Beyond the podium">
+      <div className="panel-head"><h2 className="h2">Beyond the podium</h2><span className="label">Pick a driver to follow their weekend</span></div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4">
+        {cards.map((c, i) => {
+          const d = drivers[String(c.id)]
+          return (
+            <button key={c.id} onClick={() => onPick(c.id)} className="lift relative overflow-hidden rounded-lg border text-left p-4 pt-5 flex flex-col" style={{ borderColor: 'var(--line)', background: i === 0 ? 'var(--panel-2)' : 'transparent' }}>
+              <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: teamColor(d?.team) }} />
+              <div className="kicker">{c.tag}</div>
+              <div className="display font-bold text-[19px] mt-2 leading-tight">{c.name}</div>
+              <div className="label mt-0.5">{d?.team}</div>
+              <p className="text-[13px] t2 mt-3 flex-1">{trim(c.name, c.reason)}</p>
+              <div className="text-[12.5px] font-medium mt-4">Read their weekend <span aria-hidden="true">→</span></div>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export function RaceWeekend() {
   const eventId = Number(useParams().eventId)
   const [search] = useSearchParams()
@@ -253,6 +292,10 @@ export function RaceWeekend() {
         </div>
       )}
 
+      {ready && selected.length === 0 && spot.data && (
+        <div className="mt-4"><BeyondPodium spot={spot.data} drivers={drivers} onPick={pick} /></div>
+      )}
+
       {ready && isRaceLike(session?.session_type) && detail.data && (
         <section className="panel mt-4" aria-label="Race positions">
           <div className="panel-head">
@@ -269,15 +312,6 @@ export function RaceWeekend() {
         <div className="mt-4 space-y-4">
           {selected.length === 2 && headline.data && <CompareView eventId={eventId} sessionId={sessionId} headline={headline.data} a={selected[0]} b={selected[1]} colors={colors} />}
           {selected.map((d, i) => <DriverStory key={d.id} eventId={eventId} sessionId={sessionId} sessions={sessions} driver={d} color={colors[i]} onSession={setSession} />)}
-          {selected.length === 0 && headline.data && (
-            <div className="panel px-6 py-8 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <div className="h2">Follow a driver's weekend</div>
-                <p className="t2 mt-1">Pick anyone in the classification for their story from practice to the flag, with the strategy calls explained.</p>
-              </div>
-              {spot.data && <button className="btn" onClick={() => pick(spot.data!.driver_id)}><span className="dot" style={{ background: teamColor(spot.data.team) }} />Start with {spot.data.driver}</button>}
-            </div>
-          )}
           {detail.data && headline.data && session && <DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} />}
         </div>
       )}
