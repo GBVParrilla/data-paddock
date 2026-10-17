@@ -2,7 +2,8 @@
 
 Ingests historical F1 session data (Jolpica + OpenF1), computes two tiers of analytics
 (casual `headline_*`, avid `detail_*`), detects pivotal moments with pure data logic, and
-generates hedged, data-grounded narratives with Claude Fable 5.1. Built for the 2026 season;
+generates hedged, data-grounded narratives with Claude (Haiku 5.5 at low effort by default;
+set `F1_NARRATIVE_MODEL` / `F1_NARRATIVE_EFFORT` to change it). Built for the 2026 season;
 structured so a live-ingestion mode can be added without a rearchitecture.
 
 Published as a static website on GitHub Pages: a daily GitHub Action processes new sessions, has
@@ -210,7 +211,9 @@ One-time setup:
    `ANTHROPIC_ORGANIZATION_ID` (Console -> Settings -> Organization), `ANTHROPIC_FEDERATION_RULE_ID`
    (`fdrl_...`), `ANTHROPIC_SERVICE_ACCOUNT_ID` (`svac_...`), and `ANTHROPIC_WORKSPACE_ID`
    (`wrkspc_...`, needed only if the rule covers more than one workspace).
-4. Optional variables: `F1_YEAR` (default 2026), `MAX_NEW_STORIES` (per-run cap on Claude calls, default 800).
+4. Optional variables: `F1_YEAR` (default 2026), `MAX_NEW_STORIES` (per-run cap on Claude calls, default 800),
+   `F1_NARRATIVE_MODEL` (default `claude-haiku-5-5`; `claude-sonnet-5-5` writes better analysis at roughly
+   20x the price) and `F1_NARRATIVE_EFFORT` (default `low`). Changing the model rewrites every story on the next run.
 5. Actions -> Site -> Run workflow (`full`). The first backfill of a season takes a few daily runs,
    because each run is capped by `MAX_NEW_STORIES` and a ~4.5 hour time budget.
 

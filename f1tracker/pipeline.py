@@ -42,7 +42,7 @@ from .narratives.compare import plan_comparison_narrative
 from .narratives.driver_session import plan_driver_session_narrative
 from .narratives.edits import sync_story_edits
 from .narratives.jobs import StoryJob
-from .narratives.llm import NarrativeAuthError, NarrativeGenerationError, _get_client
+from .narratives.llm import NarrativeGenerationError, NarrativeStopError, _get_client
 from .narratives.season_arc import plan_season_arc
 from .narratives.weekend_arc import MissingSessionStory, plan_weekend_arc
 
@@ -150,7 +150,7 @@ def _run_jobs(plans: Iterator[Callable[[OrmSession], tuple[object, StoryJob | No
                         job.save(db, data, model_used)
                         db.commit()
                         report.written += 1
-                    except NarrativeAuthError:
+                    except NarrativeStopError:
                         for f in running:
                             f.cancel()
                         raise  # every other call would fail the same way
@@ -186,7 +186,7 @@ def _run_jobs(plans: Iterator[Callable[[OrmSession], tuple[object, StoryJob | No
 
 def generate_season_stories(year: int, *, force: bool = False, workers: int = STORY_WORKERS, max_new: int | None = None, deadline: float | None = None) -> StoryReport:
     report = StoryReport()
-    _get_client()  # fail fast (NarrativeAuthError) when no credentials are configured
+    _get_client()  # fail fast (NarrativeStopError) when no credentials are configured
     budget = _Budget(max_new, deadline)
     with db_session() as db:
         season = db.scalar(select(Season).where(Season.year == year))
@@ -269,10 +269,10 @@ def run_pipeline(
         return None
     try:
         report = generate_season_stories(year, force=force_stories, workers=workers, max_new=max_new_stories, deadline=deadline)
-    except NarrativeAuthError as exc:
-        log.error("AI stories stopped - Claude credentials problem: %s", exc)
+    except NarrativeStopError as exc:
+        log.error("AI stories stopped: %s", exc)
         if os.environ.get("GITHUB_ACTIONS"):
-            print(f"::error title=Claude authentication failed::{exc}", flush=True)  # shows on the run summary
+            print(f"::error title=AI stories stopped::{exc}", flush=True)  # shows on the run summary
         return None
     log.info("stories: written=%d up_to_date=%d failed=%d not_attempted=%d", report.written, report.up_to_date, report.failed, report.skipped)
     return report

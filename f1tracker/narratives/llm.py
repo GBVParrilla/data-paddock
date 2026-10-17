@@ -22,7 +22,7 @@ import requests
 from anthropic import WorkloadIdentityCredentials
 from anthropic.lib.credentials import WorkloadIdentityError
 
-from ..config import NARRATIVE_EFFORT, NARRATIVE_MAX_TOKENS, NARRATIVE_MODEL, PROMPT_VERSION
+from ..config import FALLBACK_MODELS, NARRATIVE_EFFORT, NARRATIVE_MAX_TOKENS, NARRATIVE_MODEL, PROMPT_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +33,12 @@ class NarrativeGenerationError(RuntimeError):
     pass
 
 
-class NarrativeAuthError(NarrativeGenerationError):
-    """Credentials are missing or rejected - every further call would fail the same way."""
+class NarrativeStopError(NarrativeGenerationError):
+    """Every further call would fail the same way (credentials, credit balance) - stop the run."""
+
+
+class NarrativeAuthError(NarrativeStopError):
+    """Credentials are missing or rejected."""
 
 
 # Audience the federation rule matches on (its `match.audience`).
@@ -95,6 +99,9 @@ def stable_hash(payload: Any) -> str:
 def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str | None = None) -> tuple[dict[str, Any], str]:
     """One structured-output call. Returns (parsed JSON, model that served it)."""
     client = _get_client()
+    fallback: dict[str, Any] = {}
+    if NARRATIVE_MODEL in FALLBACK_MODELS:  # re-run a refused request on another model, server-side
+        fallback = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
     try:
         response = client.beta.messages.create(
             model=NARRATIVE_MODEL,
@@ -102,8 +109,7 @@ def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str
             system=system,
             messages=[{"role": "user", "content": user}],
             output_config={"effort": effort or NARRATIVE_EFFORT, "format": {"type": "json_schema", "schema": schema}},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+            **fallback,
         )
     except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
         raise NarrativeAuthError(f"Anthropic API rejected the credentials ({exc.status_code})") from exc
@@ -119,6 +125,8 @@ def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str
     except anthropic.RateLimitError as exc:
         raise NarrativeGenerationError("Anthropic API rate limit hit; try again shortly") from exc
     except anthropic.APIStatusError as exc:
+        if exc.status_code == 400 and "credit balance" in str(exc.message).lower():
+            raise NarrativeStopError("Anthropic credit balance is too low - add credits in the Console (Plans & Billing)") from exc
         raise NarrativeGenerationError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
     except anthropic.APIConnectionError as exc:
         raise NarrativeGenerationError("Could not reach the Anthropic API") from exc
