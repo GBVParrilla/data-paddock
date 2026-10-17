@@ -56,3 +56,51 @@ def test_github_identity_token_is_fetched_fresh_with_audience(monkeypatch):
 def test_api_key_still_works_locally(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     assert llm._get_client().api_key == "sk-ant-test"
+
+
+class _Resp:
+    stop_reason = "end_turn"
+    model = "m"
+    usage = None
+    content = [type("B", (), {"type": "text", "text": '{"a": "b"}'})()]
+
+
+def _capture_create(monkeypatch, model):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setattr(llm, "NARRATIVE_MODEL", model)
+    sent = {}
+
+    def create(**kwargs):
+        sent.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setattr(llm._get_client().beta.messages, "create", create)
+    llm.generate_json("sys", "user", {"type": "object"})
+    return sent
+
+
+def test_haiku_requests_have_no_fallbacks(monkeypatch):
+    sent = _capture_create(monkeypatch, "claude-haiku-5-5")
+    assert "fallbacks" not in sent and "betas" not in sent
+    assert sent["output_config"]["format"]["type"] == "json_schema"
+
+
+def test_fallback_models_keep_server_side_fallback(monkeypatch):
+    sent = _capture_create(monkeypatch, "claude-sonnet-5-5")
+    assert sent["fallbacks"] == "default" and sent["betas"] == ["server-side-fallback-2026-07-01"]
+
+
+def test_low_credit_balance_stops_the_run(monkeypatch):
+    import anthropic
+    import httpx2
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    req = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    body = {"type": "error", "error": {"type": "invalid_request_error", "message": "Your credit balance is too low to access the Anthropic API."}}
+
+    def create(**kwargs):
+        raise anthropic.BadRequestError("Your credit balance is too low to access the Anthropic API.", response=httpx2.Response(400, request=req, json=body), body=body)
+
+    monkeypatch.setattr(llm._get_client().beta.messages, "create", create)
+    with pytest.raises(llm.NarrativeStopError):
+        llm.generate_json("sys", "user", {"type": "object"})

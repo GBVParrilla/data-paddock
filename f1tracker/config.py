@@ -25,8 +25,14 @@ HTTP_TIMEOUT_S = 60
 
 # --- Narrative generation ----------------------------------------------------
 # One-line change to move models later.
-NARRATIVE_MODEL = "claude-fable-5-1"
-NARRATIVE_EFFORT = os.environ.get("F1_NARRATIVE_EFFORT", "high")
+# Haiku 5.5 at low effort: the facts are pre-computed, so the model only has to write them up.
+# A full season (~4,800 stories) costs a few dollars. Sonnet 5.5 ("claude-sonnet-5-5") or
+# Opus 5.5 write better strategy analysis at a higher price. Changing the model rewrites every
+# story on the next run (it is part of each story's cache key).
+NARRATIVE_MODEL = os.environ.get("F1_NARRATIVE_MODEL") or "claude-haiku-5-5"  # unset repo variables arrive as ""
+NARRATIVE_EFFORT = os.environ.get("F1_NARRATIVE_EFFORT") or "low"
+# Models that support server-side refusal fallback (Haiku 5.5 doesn't: the parameter is rejected or ignored).
+FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
 NARRATIVE_MAX_TOKENS = 4096
 # Bump when prompts change so cached narratives regenerate.
 PROMPT_VERSION = "1"

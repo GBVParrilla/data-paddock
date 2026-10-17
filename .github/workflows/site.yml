@@ -15,7 +15,8 @@
 # (Settings -> Secrets and variables -> Actions -> Variables; they're IDs, not secrets):
 # ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_SERVICE_ACCOUNT_ID,
 # ANTHROPIC_WORKSPACE_ID (only if the rule covers more than one workspace).
-# Optional: F1_YEAR (default 2026), MAX_NEW_STORIES (per-run cap on Claude calls, default 800).
+# Optional: F1_YEAR (default 2026), MAX_NEW_STORIES (per-run cap on Claude calls, default 800),
+# F1_NARRATIVE_MODEL (default claude-haiku-5-5), F1_NARRATIVE_EFFORT (default low).
 name: Site
 
 on:
@@ -92,6 +93,8 @@ jobs:
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          F1_NARRATIVE_MODEL: ${{ vars.F1_NARRATIVE_MODEL }}
+          F1_NARRATIVE_EFFORT: ${{ vars.F1_NARRATIVE_EFFORT }}
         run: |
           args="--year $F1_YEAR --time-budget-min 270 --max-new-stories ${{ inputs.max_new_stories || vars.MAX_NEW_STORIES || '800' }}"
           [ "$MODE" = "stories-only" ] && args="$args --no-ingest"
