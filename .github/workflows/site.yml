@@ -7,9 +7,15 @@
 # The SQLite database lives as an asset on the "db-snapshot" release (created on first run), so the
 # stories Claude writes are kept between runs and never regenerated unless their data changes.
 #
-# One-time setup: Settings -> Secrets and variables -> Actions -> add secret ANTHROPIC_API_KEY,
-# and Settings -> Pages -> Source: "GitHub Actions". Optional repository variables:
-# F1_YEAR (default 2026), MAX_NEW_STORIES (per-run cap on Claude calls, default 800).
+# Claude access uses Workload Identity Federation: no API key is stored anywhere. The job asks GitHub
+# for a short-lived OIDC token (id-token: write) and exchanges it for a short-lived Claude token, so
+# only runs on this repo's main branch can call Claude (see README -> Publishing).
+#
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions", and these repository variables
+# (Settings -> Secrets and variables -> Actions -> Variables; they're IDs, not secrets):
+# ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_SERVICE_ACCOUNT_ID,
+# ANTHROPIC_WORKSPACE_ID (only if the rule covers more than one workspace).
+# Optional: F1_YEAR (default 2026), MAX_NEW_STORIES (per-run cap on Claude calls, default 800).
 name: Site
 
 on:
@@ -36,7 +42,7 @@ on:
 permissions:
   contents: write # the db-snapshot release
   pages: write
-  id-token: write
+  id-token: write # GitHub OIDC token: exchanged for Claude access, and used by the Pages deploy
 
 concurrency:
   group: site
@@ -82,7 +88,10 @@ jobs:
       - name: Process data and write stories
         if: env.MODE != 'publish-only'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
         run: |
           args="--year $F1_YEAR --time-budget-min 270 --max-new-stories ${{ inputs.max_new_stories || vars.MAX_NEW_STORIES || '800' }}"
           [ "$MODE" = "stories-only" ] && args="$args --no-ingest"

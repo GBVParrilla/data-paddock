@@ -1,7 +1,11 @@
 """Thin wrapper around the Anthropic SDK for narrative generation.
 
-- The API key is read from the environment by the SDK at call time
-  (ANTHROPIC_API_KEY). It is never accepted as a parameter or logged.
+- Credentials come from the environment, never parameters or logs. Either:
+  * ANTHROPIC_API_KEY (local dev), or
+  * Workload Identity Federation (no stored secret): ANTHROPIC_FEDERATION_RULE_ID +
+    ANTHROPIC_ORGANIZATION_ID (+ ANTHROPIC_SERVICE_ACCOUNT_ID / ANTHROPIC_WORKSPACE_ID).
+    Inside GitHub Actions the identity token is fetched fresh from the runner for every
+    exchange; elsewhere the SDK reads ANTHROPIC_IDENTITY_TOKEN_FILE / ANTHROPIC_IDENTITY_TOKEN.
 - Model string lives in config.NARRATIVE_MODEL.
 - Server-side refusal fallback is enabled by default (fallbacks="default").
 """
@@ -14,6 +18,9 @@ import os
 from typing import Any
 
 import anthropic
+import requests
+from anthropic import WorkloadIdentityCredentials
+from anthropic.lib.credentials import WorkloadIdentityError
 
 from ..config import NARRATIVE_EFFORT, NARRATIVE_MAX_TOKENS, NARRATIVE_MODEL, PROMPT_VERSION
 
@@ -26,12 +33,56 @@ class NarrativeGenerationError(RuntimeError):
     pass
 
 
+class NarrativeAuthError(NarrativeGenerationError):
+    """Credentials are missing or rejected - every further call would fail the same way."""
+
+
+# Audience the federation rule matches on (its `match.audience`).
+OIDC_AUDIENCE = os.environ.get("F1_OIDC_AUDIENCE", "https://api.anthropic.com")
+
+
+def _github_actions_identity_token() -> str:
+    """A fresh GitHub Actions OIDC token. They live ~5 minutes and are single-use (jti),
+    so the SDK calls this on every exchange instead of re-reading a cached file."""
+    resp = requests.get(
+        os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"],
+        params={"audience": OIDC_AUDIENCE},
+        headers={"Authorization": f"Bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["value"]
+
+
+def _federation_configured() -> bool:
+    return bool(os.environ.get("ANTHROPIC_FEDERATION_RULE_ID") and os.environ.get("ANTHROPIC_ORGANIZATION_ID"))
+
+
 def _get_client() -> anthropic.Anthropic:
     global _client
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise NarrativeGenerationError("ANTHROPIC_API_KEY is not set. Put it in .env (see .env.example).")
-    if _client is None:
+    if _client is not None:
+        return _client
+    if os.environ.get("ANTHROPIC_API_KEY"):
         _client = anthropic.Anthropic(max_retries=3, timeout=600.0)  # key resolved from env by the SDK
+    elif _federation_configured() and os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL"):
+        _client = anthropic.Anthropic(
+            credentials=WorkloadIdentityCredentials(
+                identity_token_provider=_github_actions_identity_token,
+                federation_rule_id=os.environ["ANTHROPIC_FEDERATION_RULE_ID"],
+                organization_id=os.environ["ANTHROPIC_ORGANIZATION_ID"],
+                service_account_id=os.environ.get("ANTHROPIC_SERVICE_ACCOUNT_ID") or None,
+                workspace_id=os.environ.get("ANTHROPIC_WORKSPACE_ID") or None,
+            ),
+            max_retries=3,
+            timeout=600.0,
+        )
+    elif _federation_configured():
+        _client = anthropic.Anthropic(max_retries=3, timeout=600.0)  # SDK reads the identity token env vars
+    else:
+        raise NarrativeAuthError(
+            "No Claude credentials: set ANTHROPIC_API_KEY (e.g. in .env, see .env.example) "
+            "or the Workload Identity Federation variables (see README)."
+        )
     return _client
 
 
@@ -54,8 +105,17 @@ def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
-    except anthropic.AuthenticationError as exc:
-        raise NarrativeGenerationError("Anthropic API rejected the API key") from exc
+    except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+        raise NarrativeAuthError(f"Anthropic API rejected the credentials ({exc.status_code})") from exc
+    except anthropic.CredentialsError as exc:
+        raise NarrativeAuthError(f"Could not get Claude credentials: {exc}") from exc
+    except WorkloadIdentityError as exc:
+        if exc.status_code in (400, 401, 403):
+            # the exchange was refused: the Console's Workload identity -> authentication history says why
+            raise NarrativeAuthError(f"Workload identity token exchange was refused: {exc}") from exc
+        raise NarrativeGenerationError(f"Workload identity token exchange failed: {exc}") from exc
+    except requests.RequestException as exc:
+        raise NarrativeGenerationError(f"Could not fetch the GitHub Actions identity token: {exc}") from exc
     except anthropic.RateLimitError as exc:
         raise NarrativeGenerationError("Anthropic API rate limit hit; try again shortly") from exc
     except anthropic.APIStatusError as exc:

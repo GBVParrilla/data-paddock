@@ -27,8 +27,9 @@ and opens http://127.0.0.1:8000 in your browser. Close the terminal window to st
 cp .env.example .env
 ```
 
-The Anthropic key is only ever read from the `ANTHROPIC_API_KEY` environment variable
-(via `.env` for local dev). It is never a parameter, never logged, never in code.
+Locally, the Anthropic key is only ever read from the `ANTHROPIC_API_KEY` environment variable
+(via `.env`). It is never a parameter, never logged, never in code. The published site's GitHub
+Action uses no key at all: it authenticates with Workload Identity Federation (see Publishing).
 
 ## Ingest the season
 
@@ -105,7 +106,7 @@ The local API still generates a missing story on first request (handy while deve
 | `GET /sessions/{id}/midfield-spotlight` | `?generate=false` to skip the LLM call |
 | `GET /sessions/{id}/compare?driver_a=3&driver_b=4` | position-by-lap, stints, gap-over-time + comparative narrative |
 
-LLM-backed endpoints return the stored story when there is one; they return `503` only when a story has never been written and `ANTHROPIC_API_KEY` is missing. `GET /sessions/{id}/lap-times` and `/sessions/{id}/comparisons` feed the static site's comparison view.
+LLM-backed endpoints return the stored story when there is one; they return `503` only when a story has never been written and no Claude credentials are configured. `GET /sessions/{id}/lap-times` and `/sessions/{id}/comparisons` feed the static site's comparison view.
 
 ## Web UI (frontend/)
 
@@ -188,13 +189,34 @@ tests/                pure-function tests (pytest)
 The database (data + stored stories) persists between runs as `f1.db.gz` on the **`db-snapshot`
 release**. Don't delete that release, or every story would have to be written again.
 
+**Claude access without an API key (Workload Identity Federation).** No Anthropic secret is stored in
+GitHub. Each run asks GitHub for a short-lived OIDC token that says "this is a run of
+GBVParrilla/data-paddock on `main`", and Anthropic exchanges it for a Claude token that lasts at most
+10 minutes. The SDK refreshes it automatically for the hours-long story runs, fetching a fresh GitHub
+token for every exchange (they're single-use). Runs from pull requests, forks or other branches can't
+get a token, because the federation rule only matches `main` of this repository.
+
 One-time setup:
 
 1. Settings -> Pages -> Build and deployment -> Source: **GitHub Actions**.
-2. Settings -> Secrets and variables -> Actions -> New repository secret `ANTHROPIC_API_KEY`.
-3. Optional repository variables: `F1_YEAR` (default 2026), `MAX_NEW_STORIES` (per-run cap on Claude calls, default 800).
-4. Actions -> Site -> Run workflow (`full`). The first backfill of a season takes a few daily runs,
+2. In the Claude Console: [Workload identity](https://platform.claude.com/settings/workload-identity-federation)
+   -> **Connect workload** -> **GitHub Actions**. The wizard creates the issuer, a service account and a
+   federation rule. Use:
+   - issuer `https://token.actions.githubusercontent.com` (discovery)
+   - rule match: subject prefix `repo:GBVParrilla/data-paddock:ref:refs/heads/main`, audience
+     `https://api.anthropic.com`, claim `repository_owner` = `GBVParrilla`
+   - scope `workspace:developer`, token lifetime `600` (the wizard's defaults)
+3. Settings -> Secrets and variables -> Actions -> **Variables** (these are IDs, not secrets):
+   `ANTHROPIC_ORGANIZATION_ID` (Console -> Settings -> Organization), `ANTHROPIC_FEDERATION_RULE_ID`
+   (`fdrl_...`), `ANTHROPIC_SERVICE_ACCOUNT_ID` (`svac_...`), and `ANTHROPIC_WORKSPACE_ID`
+   (`wrkspc_...`, needed only if the rule covers more than one workspace).
+4. Optional variables: `F1_YEAR` (default 2026), `MAX_NEW_STORIES` (per-run cap on Claude calls, default 800).
+5. Actions -> Site -> Run workflow (`full`). The first backfill of a season takes a few daily runs,
    because each run is capped by `MAX_NEW_STORIES` and a ~4.5 hour time budget.
+
+If the token exchange is refused, the run stops writing stories at once (it still publishes the site)
+and shows "Claude authentication failed" on the run summary. The Console's Workload identity ->
+authentication history page shows why the token was rejected; usually the subject doesn't match.
 
 **Flagging and fixing a story:** every story has a *Flag a problem* link that opens a prefilled GitHub
 issue (label `story-flag`). The issue links back to the story in editor mode (`?editor=1`), where
