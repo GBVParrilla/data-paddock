@@ -1,151 +1,159 @@
-import { CartesianGrid, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useMemo, useState } from 'react'
+import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChartAnnotation, Driver, PitStopRow, PositionByLap, StintRow } from '../api/client'
+import { tyre } from '../lib/f1'
+import { slotColors, teamColor } from '../lib/teamColors'
 
-const COMPOUND_COLOR: Record<string, string> = { SOFT: 'var(--tyre-soft)', MEDIUM: 'var(--tyre-medium)', HARD: 'var(--tyre-hard)', INTERMEDIATE: 'var(--tyre-inter)', WET: 'var(--tyre-wet)' }
-const COMPOUND_LETTER: Record<string, string> = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' }
-const compoundColor = (c: string | null) => (c && COMPOUND_COLOR[c]) || '#5b5b57'
-const compoundLetter = (c: string | null) => (c && COMPOUND_LETTER[c]) || '?'
+const Y_W = 34
+const R_PAD = 44
 
-function CompoundStrip({ driver, color, stints, maxLap }: { driver: Driver; color: string; stints: StintRow[]; maxLap: number }) {
-  const ordered = [...stints].sort((a, b) => a.stint_number - b.stint_number)
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="font-semibold w-16 truncate" style={{ color }}>{driver.code ?? driver.name}</span>
-      <div className="flex-1 flex h-4 rounded overflow-hidden border" style={{ borderColor: 'var(--line)' }}>
-        {ordered.map((s, i) => {
-          const start = s.lap_start ?? 1
-          const end = s.lap_end ?? start
-          const width = Math.max(2, ((end - start + 1) / maxLap) * 100)
-          return (
-            <div key={i} className="flex items-center justify-center text-[9px] font-bold" style={{ width: `${width}%`, background: compoundColor(s.compound), color: s.compound === 'HARD' ? '#111' : '#111' }} title={`${s.compound ?? 'Unknown'} · laps ${start}-${end}`}>
-              {compoundLetter(s.compound)}
-            </div>
-          )
-        })}
-      </div>
-      <span className="faint w-8 text-right">{ordered.length} stop{ordered.length === 1 ? '' : 's'}</span>
-    </div>
-  )
+/** Safety car / VSC / red flag periods from race-control moments, as lap ranges. */
+function neutralisations(anns: ChartAnnotation[]): { from: number; to: number; label: string }[] {
+  return anns
+    .filter((a) => a.moment_type === 'safety_car' && a.lap_number !== null)
+    .map((a) => {
+      const end = a.description.match(/ended lap (\d+)/i)
+      const from = a.lap_number!
+      const to = end ? Number(end[1]) : from
+      const label = a.label === 'Safety car' ? 'SC' : a.label === 'Red flag' ? 'Red flag' : a.label
+      return { from, to: Math.max(to, from + 0.6), label }
+    })
 }
 
-export function PositionChart({
-  rows,
-  drivers,
-  highlighted,
-  highlightColors,
-  annotations,
-  pitStops,
-  stints,
-}: {
+/**
+ * Lap-by-lap running order. With no driver selected every car is drawn in its team colour;
+ * selecting drivers brings them forward (others fade) and adds their pit stops and tyre stints.
+ */
+export function PositionChart({ rows, drivers, selected, annotations, pitStops, stints, onSelect }: {
   rows: PositionByLap[]
   drivers: Record<string, Driver>
-  highlighted: number[]
-  highlightColors: string[]
+  selected: number[]
   annotations: ChartAnnotation[]
   pitStops: PitStopRow[]
   stints: StintRow[]
+  onSelect: (id: number) => void
 }) {
-  const byLap = new Map<number, Record<string, number>>()
-  const driverIds = new Set<number>()
-  let maxPos = 1
-  let maxLap = 1
-  for (const r of rows) {
-    if (r.position === null) continue
-    driverIds.add(r.driver_id)
-    maxPos = Math.max(maxPos, r.position)
-    maxLap = Math.max(maxLap, r.lap_number)
-    const row = byLap.get(r.lap_number) ?? { lap: r.lap_number }
-    row[`d${r.driver_id}`] = r.position
-    byLap.set(r.lap_number, row)
+  const [hover, setHover] = useState<number | null>(null)
+  const { data, ids, maxLap, maxPos, last } = useMemo(() => {
+    const byLap = new Map<number, Record<string, number>>()
+    const lastPos = new Map<number, { lap: number; pos: number }>()
+    let maxLap = 1, maxPos = 1
+    for (const r of rows) {
+      if (r.position === null) continue
+      const row = byLap.get(r.lap_number) ?? { lap: r.lap_number }
+      row[`d${r.driver_id}`] = r.position
+      byLap.set(r.lap_number, row)
+      maxLap = Math.max(maxLap, r.lap_number)
+      maxPos = Math.max(maxPos, r.position)
+      const l = lastPos.get(r.driver_id)
+      if (!l || r.lap_number > l.lap) lastPos.set(r.driver_id, { lap: r.lap_number, pos: r.position })
+    }
+    return { data: [...byLap.values()].sort((a, b) => a.lap - b.lap), ids: [...lastPos.keys()], maxLap, maxPos, last: lastPos }
+  }, [rows])
+
+  const selColors = slotColors(selected.map((id) => drivers[String(id)]?.team))
+  const colorOf = (id: number) => {
+    const i = selected.indexOf(id)
+    return i !== -1 ? selColors[i] : teamColor(drivers[String(id)]?.team)
   }
-  const data = [...byLap.values()].sort((a, b) => a.lap - b.lap)
-  const pitCountByDriver = new Map<number, number>()
-  for (const p of pitStops) pitCountByDriver.set(p.driver_id, (pitCountByDriver.get(p.driver_id) ?? 0) + 1)
-
-  // Background context lines are limited to drivers who never pitted - pit-stop dips are just clutter
-  // until you actually pick that driver. A selected driver always shows in full, pit stops and all.
-  const backgroundIds = [...driverIds].filter((id) => !highlighted.includes(id) && !pitCountByDriver.get(id))
-  const shownIds = [...backgroundIds, ...highlighted]
-  const hiddenForPits = driverIds.size - shownIds.length
-
-  // Pit-stop pivotal moments are only shown for a driver you've actually selected - your own
-  // selected driver's pit stops get their own dedicated markers below anyway. Other pivotal-moment
-  // types (safety car, penalties, position swings, fastest lap) still always show - those are the
-  // session's story, not per-driver clutter.
-  const lapAnns = annotations.filter((a) => a.lap_number !== null && (a.moment_type !== 'pit_stop' || highlighted.includes(a.driver_id!)))
-  const posAt = (driverId: number, lap: number) => byLap.get(lap)?.[`d${driverId}`]
+  const focus = selected.length ? selected : hover !== null ? [hover] : []
+  const ordered = [...ids.filter((id) => !focus.includes(id)), ...focus]
+  const pos = (id: number, lap: number) => data.find((d) => d.lap === lap)?.[`d${id}`]
+  const sc = neutralisations(annotations)
 
   return (
-    <div className="w-full">
-      <div className="h-80">
+    <div>
+      <div className="h-[340px]">
         <ResponsiveContainer>
-          <LineChart data={data} margin={{ top: 12, right: 24, bottom: 8, left: 0 }}>
-            <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="lap" type="number" domain={['dataMin', 'dataMax']} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} stroke="var(--line)" label={{ value: 'Lap', position: 'insideBottomRight', fill: 'var(--text-muted)', fontSize: 11, dy: 8 }} />
-            <YAxis reversed domain={[1, maxPos]} allowDecimals={false} width={32} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} stroke="var(--line)" tickFormatter={(v) => `P${v}`} />
+          <LineChart data={data} margin={{ top: 18, right: R_PAD, bottom: 4, left: 0 }} onMouseLeave={() => setHover(null)}>
+            <CartesianGrid stroke="var(--line)" vertical={false} />
+            {sc.map((s, i) => (
+              <ReferenceArea key={i} x1={s.from} x2={s.to} fill="var(--yellow)" fillOpacity={0.07} stroke="none" ifOverflow="hidden"
+                label={{ value: s.label, position: 'insideTop', fill: 'var(--text-3)', fontSize: 10, dy: -14 }} />
+            ))}
+            <XAxis dataKey="lap" type="number" domain={[1, maxLap]} tickCount={Math.min(12, maxLap)} allowDecimals={false} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} />
+            <YAxis reversed domain={[1, maxPos]} ticks={[1, 5, 10, 15, 20].filter((t) => t <= maxPos)} width={Y_W} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} axisLine={false} tickFormatter={(v) => `P${v}`} />
             <Tooltip
-              cursor={{ stroke: 'var(--text-muted)', strokeWidth: 1 }}
+              cursor={{ stroke: 'var(--line-2)' }}
+              isAnimationActive={false}
               content={({ active, label }) => {
                 if (!active || label === undefined) return null
                 const lap = Number(label)
-                const row = byLap.get(lap)
-                const anns = lapAnns.filter((a) => a.lap_number === lap)
+                const show = focus.length ? focus : []
+                const pits = pitStops.filter((p) => p.lap_number === lap && show.includes(p.driver_id))
                 return (
-                  <div className="card px-3 py-2 text-xs shadow max-w-xs" style={{ background: 'var(--surface-1)' }}>
-                    <div className="font-semibold mb-1">Lap {lap}</div>
-                    {highlighted.map((id, i) => (
-                      <div key={id} className="flex items-center gap-2">
-                        <span className="inline-block w-3 h-1 rounded" style={{ background: highlightColors[i] }} />
-                        {drivers[String(id)]?.name ?? id}: {row?.[`d${id}`] !== undefined ? `P${row[`d${id}`]}` : '–'}
+                  <div className="tip min-w-[140px]">
+                    <div className="label mb-1">Lap {lap}</div>
+                    {show.length === 0 && <div className="t3">Hover or select a driver</div>}
+                    {show.map((id) => (
+                      <div key={id} className="flex items-center gap-2 num">
+                        <span className="dot" style={{ background: colorOf(id) }} />
+                        <span className="font-medium w-9">{drivers[String(id)]?.code}</span>
+                        <span className="t2">{pos(id, lap) !== undefined ? `P${pos(id, lap)}` : '–'}</span>
                       </div>
                     ))}
-                    {anns.map((a, i) => (
-                      <div key={i} className="mt-1 pt-1 border-t" style={{ borderColor: 'var(--line)' }}>
-                        <span className="font-semibold">{a.label}</span> <span className="muted">{a.description}</span>
-                      </div>
-                    ))}
+                    {pits.map((p) => <div key={p.driver_id} className="t2 mt-1">{drivers[String(p.driver_id)]?.code} pitted{p.duration_ms ? ` · ${(p.duration_ms / 1000).toFixed(1)}s` : ''}</div>)}
                   </div>
                 )
               }}
             />
-            {shownIds.map((id) => {
-              const hi = highlighted.indexOf(id)
+            {ordered.map((id) => {
+              const on = focus.includes(id)
+              const dim = focus.length > 0 && !on
+              const pitLaps = new Set(pitStops.filter((p) => p.driver_id === id).map((p) => p.lap_number))
               return (
-                <Line key={id} type="monotone" dataKey={`d${id}`} name={drivers[String(id)]?.name ?? String(id)} stroke={hi === -1 ? 'var(--series-muted)' : highlightColors[hi]} strokeWidth={hi === -1 ? 1 : 3} dot={false} activeDot={hi === -1 ? false : { r: 4 }} isAnimationActive={false} connectNulls />
+                <Line
+                  key={id}
+                  dataKey={`d${id}`}
+                  type="linear"
+                  stroke={dim ? 'var(--line-2)' : colorOf(id)}
+                  strokeOpacity={dim ? 0.7 : on ? 1 : 0.75}
+                  strokeWidth={on ? 2.5 : 1.25}
+                  isAnimationActive={false}
+                  connectNulls
+                  activeDot={false}
+                  onMouseEnter={() => !selected.length && setHover(id)}
+                  onClick={() => onSelect(id)}
+                  style={{ cursor: 'pointer' }}
+                  dot={(p: { cx?: number; cy?: number; payload?: { lap: number }; index?: number }) => {
+                    const key = `${id}-${p.index}`
+                    if (p.cx === undefined || p.cy === undefined || !p.payload) return <g key={key} />
+                    const lap = p.payload.lap
+                    // pit stops: only for drivers you've selected
+                    if (selected.includes(id) && pitLaps.has(lap)) {
+                      return <circle key={key} cx={p.cx} cy={p.cy} r={4.5} fill="var(--bg)" stroke={colorOf(id)} strokeWidth={2}><title>{`${drivers[String(id)]?.code} pit stop, lap ${lap}`}</title></circle>
+                    }
+                    // end label
+                    if (lap === last.get(id)?.lap && !dim) {
+                      return <text key={key} x={p.cx + 6} y={p.cy + 4} fontSize={10.5} fontWeight={on ? 600 : 500} fill={on ? 'var(--text)' : 'var(--text-2)'}>{drivers[String(id)]?.code}</text>
+                    }
+                    return <g key={key} />
+                  }}
+                />
               )
-            })}
-            {highlighted.map((id, hi) =>
-              (pitStops.filter((p) => p.driver_id === id)).map((p, j) => {
-                const lap = p.lap_number
-                const pos = posAt(id, lap) ?? posAt(id, lap + 1)
-                if (pos === undefined) return null
-                return (
-                  <ReferenceDot key={`pit-${id}-${j}`} x={lap} y={pos} r={6} fill="var(--status-warning)" stroke={highlightColors[hi]} strokeWidth={2} label={{ value: `PIT L${lap}`, position: 'bottom', fontSize: 10, fill: 'var(--status-warning)', fontWeight: 700 }} />
-                )
-              }),
-            )}
-            {lapAnns.map((a, i) => {
-              const nth = lapAnns.slice(0, i).filter((o) => o.lap_number === a.lap_number).length
-              const pos = nth % 2 === 0 ? 'top' : 'bottom'
-              if (a.driver_id && posAt(a.driver_id, a.lap_number!) !== undefined) {
-                return <ReferenceDot key={i} x={a.lap_number!} y={posAt(a.driver_id, a.lap_number!)!} r={5} fill={a.moment_type === 'penalty' ? 'var(--status-critical)' : 'var(--status-warning)'} stroke="var(--surface-1)" strokeWidth={2} label={{ value: a.label, position: pos, fontSize: 10, fill: 'var(--text-secondary)' }} />
-              }
-              return <ReferenceLine key={i} x={a.lap_number!} stroke="var(--status-warning)" strokeDasharray="4 3" label={{ value: a.label, position: nth % 2 === 0 ? 'insideTop' : 'insideBottom', fontSize: 10, fill: 'var(--text-secondary)' }} />
             })}
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="faint text-[11px] mt-1">
-        Markers are the session's pivotal moments (data-detected). Grey lines are drivers who made zero pit stops, shown for context.
-        {hiddenForPits > 0 && ` ${hiddenForPits} driver${hiddenForPits === 1 ? '' : 's'} with pit stops are hidden until you select them.`}
-      </p>
-      {highlighted.length > 0 && (
-        <div className="mt-3 space-y-1.5 border-t pt-2" style={{ borderColor: 'var(--line)' }}>
-          <div className="text-[11px] uppercase tracking-wide faint">Tyre strategy</div>
-          {highlighted.map((id, hi) => {
-            const d = drivers[String(id)]
-            if (!d) return null
-            return <CompoundStrip key={id} driver={d} color={highlightColors[hi]} stints={stints.filter((s) => s.driver_id === id)} maxLap={maxLap} />
+      {selected.length > 0 && (
+        <div className="mt-2 space-y-1.5" style={{ paddingLeft: Y_W, paddingRight: R_PAD }}>
+          {selected.map((id) => {
+            const own = stints.filter((s) => s.driver_id === id).sort((a, b) => a.stint_number - b.stint_number)
+            return (
+              <div key={id} className="relative h-[14px] flex" aria-label={`${drivers[String(id)]?.code} tyre stints`}>
+                <span className="absolute -left-[34px] text-[10.5px] font-medium t2 leading-[14px]">{drivers[String(id)]?.code}</span>
+                {own.map((s) => {
+                  const a = s.lap_start ?? 1, b = s.lap_end ?? a
+                  const t = tyre(s.compound)
+                  return (
+                    <div key={s.stint_number} title={`${t.label} · laps ${a}–${b}`} className="h-full rounded-[3px] text-[9px] font-bold flex items-center justify-center text-[#0c0e11]"
+                      style={{ position: 'absolute', left: `${((a - 1) / maxLap) * 100}%`, width: `calc(${((b - a + 1) / maxLap) * 100}% - 2px)`, background: t.color }}>
+                      {(b - a + 1) / maxLap > 0.06 ? t.letter : ''}
+                    </div>
+                  )
+                })}
+              </div>
+            )
           })}
         </div>
       )}

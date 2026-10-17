@@ -56,6 +56,7 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
 
     for season in db.scalars(select(Season)).all():
         write(f"seasons/{season.year}/events", api.season_events(season.year, db=db))
+        write(f"seasons/{season.year}/standings", api.season_standings(season.year, db=db))
         for arc in db.scalars(select(SeasonArc).where(SeasonArc.season_id == season.id)).all():
             subject = arc.subject_id if arc.subject_type == "driver" else slug(arc.subject_id)
             write(f"seasons/{season.year}/arc/{arc.subject_type}/{subject}", present_season_arc(db, arc))

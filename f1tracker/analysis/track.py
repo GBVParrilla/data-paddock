@@ -31,8 +31,8 @@ from itertools import groupby
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from ..clients import openf1
-from ..models import Driver, Event, Lap, Session, TrackOutline
+from ..clients import multiviewer, openf1
+from ..models import Driver, Event, Lap, Season, Session, TrackOutline
 from ..util import parse_iso_utc, utcnow
 
 log = logging.getLogger(__name__)
@@ -81,6 +81,48 @@ def pca_rotate(raw: list[dict]) -> list[dict]:
         rx = cx * cos_a + cy * sin_a
         ry = -cx * sin_a + cy * cos_a
         out.append({**p, "x": rx, "y": ry})
+    return out
+
+
+def rotate_points(raw: list[dict], degrees: float) -> list[dict]:
+    """Rotate x/y by `degrees` (counter-clockwise, maths convention) - F1's own map rotation."""
+    a = math.radians(degrees)
+    c, s = math.cos(a), math.sin(a)
+    return [{**p, "x": p["x"] * c - p["y"] * s, "y": p["x"] * s + p["y"] * c} for p in raw]
+
+
+def official_circuit(event: Event, year: int) -> dict | None:
+    """F1's circuit metadata (map rotation + numbered corners) for this event, via MultiViewer."""
+    if not event.openf1_meeting_key:
+        return None
+    try:
+        meetings = openf1._get("meetings", meeting_key=event.openf1_meeting_key)
+    except Exception as exc:
+        log.warning("event %d: could not look up circuit key (%s)", event.id, exc)
+        return None
+    circuit_key = meetings[0].get("circuit_key") if meetings else None
+    return multiviewer.fetch_circuit(int(circuit_key), year) if circuit_key else None
+
+
+def official_turns(raw_m: list[dict], dist: list[float], times: list, car_data: list[dict], corners: list[dict]) -> list[dict]:
+    """Official corner numbers placed on our reference lap: nearest telemetry point to each corner.
+
+    `raw_m` is the lap in meters (unrotated); corner positions come in the same frame in decimeters.
+    Apex speed is the slowest speed within +/-60m of that point.
+    """
+    speeds: list[float | None] = [None] * len(raw_m)
+    samples = [(parse_iso_utc(d["date"]), d.get("speed")) for d in car_data if d.get("date") and d.get("speed") is not None]
+    samples = sorted((s for s in samples if s[0] is not None), key=lambda s: s[0])
+    if samples:
+        nearest = _nearest_indices(times, [s[0] for s in samples])
+        speeds = [samples[i][1] for i in nearest]
+    out = []
+    for c in sorted(corners, key=lambda c: c["number"]):
+        cx = c["trackPosition"]["x"] / openf1.LOCATION_UNITS_PER_METER
+        cy = c["trackPosition"]["y"] / openf1.LOCATION_UNITS_PER_METER
+        idx = min(range(len(raw_m)), key=lambda i: (raw_m[i]["x"] - cx) ** 2 + (raw_m[i]["y"] - cy) ** 2)
+        window = [speeds[i] for i in range(len(raw_m)) if abs(dist[i] - dist[idx]) <= 60 and speeds[i] is not None]
+        out.append({"number": c["number"], "index": idx, "distance_m": round(dist[idx], 1), "apex_speed_kph": round(min(window), 1) if window else 0.0})
     return out
 
 
@@ -261,7 +303,10 @@ def build_track_outline(db: OrmSession, event_id: int, *, force: bool = False) -
     s1_idx = next((i for i, t in enumerate(times) if t >= s1_end_t), len(raw) // 3)
     s2_idx = next((i for i, t in enumerate(times) if t >= s2_end_t), 2 * len(raw) // 3)
 
-    points = normalize_points(pca_rotate(raw))
+    season_year = db.get(Season, event.season_id).year
+    circuit = official_circuit(event, season_year)
+    # F1's own map rotation when available (matches the broadcast / F1 app); otherwise long axis horizontal
+    points = normalize_points(rotate_points(raw, circuit["rotation"]) if circuit else pca_rotate(raw))
 
     geo_points_json = geo_bbox_json = None
     if event.lat is not None and event.lon is not None:
@@ -273,7 +318,7 @@ def build_track_outline(db: OrmSession, event_id: int, *, force: bool = False) -
     try:
         car_data = openf1.fetch_car_data(session.openf1_session_key, driver.number, start.isoformat(), end.isoformat())
         drs_zones, drs_source = compute_boost_zones(times, car_data)
-        turns = detect_turns(ref_dist, times, car_data)
+        turns = official_turns(raw, ref_dist, times, car_data, circuit["corners"]) if circuit and circuit.get("corners") else detect_turns(ref_dist, times, car_data)
     except Exception as exc:  # boost zones / turns are a nice-to-have; never fail outline generation over them
         log.warning("event %d: could not compute boost zones / turns (%s)", event_id, exc)
         drs_zones, drs_source, turns = [], "none", []
@@ -295,6 +340,7 @@ def build_track_outline(db: OrmSession, event_id: int, *, force: bool = False) -
     existing.ref_distance_m_json = json.dumps([round(d, 1) for d in ref_dist])
     existing.ref_elapsed_ms_json = json.dumps([round(t, 1) for t in ref_elapsed_ms])
     existing.turns_json = json.dumps(turns)
+    existing.orientation = "f1" if circuit else "estimated"
     db.flush()
     log.info(
         "track outline for event %d (%s): %d points from %s lap %d (%s), sector idx %d/%d, %d boost zone(s) [%s], geo=%s",
@@ -314,6 +360,7 @@ def outline_to_dict(o: TrackOutline) -> dict:
         "geo_points": json.loads(o.geo_points_json) if o.geo_points_json else None,
         "geo_bbox": json.loads(o.geo_bbox_json) if o.geo_bbox_json else None,
         "turns": json.loads(o.turns_json or "[]"),
+        "orientation": o.orientation or "estimated",
         "source": {"session_id": o.source_session_id, "driver_id": o.source_driver_id, "lap_number": o.source_lap_number},
         "note": "Outline derived from one lap of car position telemetry; rotation, sector boundaries, boost zones and the satellite overlay are all best-effort approximations, not official measurements. Boost zones are estimated from sustained full-throttle, near-top-speed running when the API's own DRS-open telemetry isn't populated for that session.",
     }

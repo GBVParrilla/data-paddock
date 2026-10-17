@@ -149,7 +149,53 @@ def season_events(year: int, db: OrmSession = Depends(get_db)) -> list[dict]:
     if season is None:
         raise HTTPException(404, f"season {year} not found")
     events = db.scalars(select(Event).where(Event.season_id == season.id).order_by(Event.round)).all()
-    return [{**_row(e), "season_year": season.year} for e in events]
+    drivers = _driver_map(db)
+    out = []
+    for e in events:
+        race = db.scalar(select(Session).where(Session.event_id == e.id, Session.session_type == "R"))
+        top = db.scalars(select(HeadlineRace).where(HeadlineRace.session_id == race.id, HeadlineRace.finish_position.in_([1, 2, 3])).order_by(HeadlineRace.finish_position)).all() if race else []
+        podium = [drivers.get(r.driver_id) for r in top]
+        out.append({**_row(e), "season_year": season.year, "winner": podium[0] if podium else None, "podium": podium, "completed": bool(podium)})
+    return out
+
+
+@app.get("/seasons/{year}/standings")
+def season_standings(year: int, db: OrmSession = Depends(get_db)) -> dict:
+    """Championship tables from race + sprint results, with each driver's finish and points scored by round."""
+    season = db.scalar(select(Season).where(Season.year == year)) if year > 1900 else db.get(Season, year)
+    if season is None:
+        raise HTTPException(404, f"season {year} not found")
+    drivers = _driver_map(db)
+    q = (
+        select(HeadlineRace, Session.session_type, Event.round)
+        .join(Session, Session.id == HeadlineRace.session_id)
+        .join(Event, Event.id == Session.event_id)
+        .where(Event.season_id == season.id)
+    )
+    table: dict[int, dict] = {}
+    teams: dict[str, float] = {}
+    rounds: set[int] = set()
+    for hr, stype, rnd in db.execute(q).all():
+        d = drivers.get(hr.driver_id)
+        if d is None:
+            continue
+        rounds.add(rnd)
+        row = table.setdefault(hr.driver_id, {"driver_id": hr.driver_id, "name": d["name"], "code": d["code"], "team": d["team"], "points": 0.0, "wins": 0, "podiums": 0, "results": {}, "round_points": {}})
+        row["points"] += hr.points or 0
+        row["round_points"][rnd] = row["round_points"].get(rnd, 0) + (hr.points or 0)
+        if d["team"]:
+            teams[d["team"]] = teams.get(d["team"], 0) + (hr.points or 0)
+        if stype == "R":
+            row["results"][rnd] = hr.finish_position
+            if hr.finish_position == 1:
+                row["wins"] += 1
+            if hr.finish_position and hr.finish_position <= 3:
+                row["podiums"] += 1
+    drivers_out = sorted(table.values(), key=lambda r: (-r["points"], -r["wins"]))
+    for i, r in enumerate(drivers_out):
+        r["position"] = i + 1
+    teams_out = [{"team": t, "points": p, "position": i + 1} for i, (t, p) in enumerate(sorted(teams.items(), key=lambda kv: -kv[1]))]
+    return {"year": season.year, "rounds": sorted(rounds), "drivers": drivers_out, "teams": teams_out}
 
 
 @app.get("/events/{event_id}")
