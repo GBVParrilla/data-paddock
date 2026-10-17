@@ -1,12 +1,15 @@
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, type Driver } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
-import { ErrorNote, LoadingNote, RecapAndAnalysis } from './NarrativePanel'
+import { STATIC } from '../api/client'
+import { ErrorNote, LoadingNote, RecapAndAnalysis, StoryFooter } from './NarrativePanel'
 
-export function ComparePanel({ sessionId, a, b, colors }: { sessionId: number; a: Driver; b: Driver; colors: string[] }) {
+export function ComparePanel({ sessionId, eventId, a, b, colors }: { sessionId: number; eventId: number; a: Driver; b: Driver; colors: string[] }) {
   // data first (always available), narrative separately (needs the LLM and may be unavailable)
   const data = useFetch((s) => api.compare(sessionId, a.id, b.id, false, s), [sessionId, a.id, b.id])
-  const cmp = useFetch((s) => api.compare(sessionId, a.id, b.id, true, s), [sessionId, a.id, b.id])
+  // static site: only stories the pipeline wrote (teammates) exist; the charts work for any pair
+  const cmp = useFetch((s) => api.compare(sessionId, a.id, b.id, true, s), [sessionId, a.id, b.id], !STATIC)
+  const story = STATIC ? data.data?.narrative : cmp.data?.narrative
   const gap = data.data?.gap_over_time ?? []
   return (
     <div className="card p-4" style={{ borderTop: `4px solid ${colors[0]}` }}>
@@ -30,7 +33,20 @@ export function ComparePanel({ sessionId, a, b, colors }: { sessionId: number; a
       )}
       {cmp.loading && <LoadingNote what="the comparison" />}
       {cmp.error && <ErrorNote error={cmp.error} />}
-      {cmp.data?.narrative && <RecapAndAnalysis recap={cmp.data.narrative.comparison_text} meta={`Comparative take · ${cmp.data.narrative.model_used}`} />}
+      {story && (
+        <RecapAndAnalysis
+          recap={story.comparison_text}
+          footer={
+            <StoryFooter
+              info={story}
+              route={`/race/${eventId}?session=${sessionId}&drivers=${a.id},${b.id}`}
+              story={{ title: `${a.name} vs ${b.name} · ${story.story_key.split('/').slice(1, 3).join(' · ')}`, text: story.comparison_text, generatedAt: story.generated_at }}
+              meta="head-to-head"
+            />
+          }
+        />
+      )}
+      {STATIC && data.data && !story && <p className="faint text-xs">Written head-to-head stories cover teammates; the charts above work for any pair.</p>}
     </div>
   )
 }

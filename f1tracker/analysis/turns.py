@@ -11,6 +11,7 @@ the corner list itself is a heuristic (see analysis.track.detect_turns), not an 
 from __future__ import annotations
 
 import bisect
+import functools
 import math
 from datetime import timedelta
 
@@ -18,8 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from ..clients import openf1
-from ..models import Driver, Event, Lap, Session, TrackOutline
-from ..util import parse_iso_utc
+from ..models import Driver, Event, Lap, Session, TrackOutline, TurnDeltaCache
+from ..util import parse_iso_utc, utcnow
 from .track import lap_geometry
 
 WINDOW_M = 60.0  # each turn is measured over the +/- this many meters around its apex
@@ -86,6 +87,12 @@ def _interp(xs: list[float], ys: list[float], x: float) -> float:
     return ys[i - 1] + frac * (ys[i] - ys[i - 1])
 
 
+@functools.lru_cache(maxsize=4)
+def _fetch_reference_location(session_key: int, driver_number: int, start: str, end: str) -> tuple[dict, ...]:
+    """The reference lap is shared by every driver at an event, so batch precompute fetches it once."""
+    return tuple(openf1.fetch_location(session_key, driver_number, start, end))
+
+
 def compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int) -> dict:
     session = db.get(Session, session_id)
     if session is None:
@@ -134,7 +141,7 @@ def compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int) -> dict
             raise ValueError("reference lap no longer available")
         ref_start = ref_lap_row.lap_start_time
         ref_end = ref_start + timedelta(milliseconds=ref_lap_row.lap_time_ms + 300)
-        ref_raw = openf1.fetch_location(ref_session.openf1_session_key, ref_driver.number, ref_start.isoformat(), ref_end.isoformat())
+        ref_raw = _fetch_reference_location(ref_session.openf1_session_key, ref_driver.number, ref_start.isoformat(), ref_end.isoformat())
         ref_raw = [p for p in ref_raw if p.get("x") is not None and p.get("y") is not None and p.get("date")]
         ref_raw = [p for p in ref_raw if not (p["x"] == 0 and p["y"] == 0)]
         ref_raw.sort(key=lambda p: p["date"])
@@ -184,3 +191,27 @@ def compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int) -> dict
         "total_lap_delta_ms": total_delta,
         "note": "Delta per turn is the time gained/lost in the ~120m window around that corner's apex, vs the event's reference lap. Corners are detected from a speed trace, not an official list; small telemetry-sampling noise is expected.",
     }
+
+
+def get_or_compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int, *, force: bool = False) -> dict:
+    """Cached compute_turn_deltas (it downloads telemetry). A cached failure re-raises its ValueError."""
+    import json
+
+    cached = db.get(TurnDeltaCache, (session_id, driver_id))
+    if cached is not None and not force:
+        if cached.payload_json:
+            return json.loads(cached.payload_json)
+        raise ValueError(cached.error or "turn deltas unavailable")
+    if cached is None:
+        cached = TurnDeltaCache(session_id=session_id, driver_id=driver_id, computed_at=utcnow())
+        db.add(cached)
+    cached.computed_at = utcnow()
+    try:
+        out = compute_turn_deltas(db, session_id, driver_id)
+    except ValueError as exc:
+        cached.payload_json, cached.error = None, str(exc)
+        db.flush()
+        raise
+    cached.payload_json, cached.error = json.dumps(out, separators=(",", ":")), None
+    db.flush()
+    return out

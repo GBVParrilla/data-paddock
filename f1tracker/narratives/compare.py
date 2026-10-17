@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session as OrmSession
 from ..models import ComparisonNarrative, DetailPositionByLap, DetailStintTimeline, Driver, Lap, Session
 from ..util import fmt_ms, utcnow
 from .inputs import build_driver_session_input
-from .llm import generate_json, stable_hash
+from .jobs import StoryJob
+from .llm import stable_hash
 from .prompts import SCHEMA_COMPARISON, SYSTEM_COMPARISON
 
 log = logging.getLogger(__name__)
@@ -57,7 +58,11 @@ def build_comparison(db: OrmSession, session_id: int, driver_a: int, driver_b: i
     }
 
 
-def get_or_generate_comparison_narrative(db: OrmSession, session_id: int, driver_a: int, driver_b: int, *, force: bool = False) -> ComparisonNarrative:
+def _existing(db: OrmSession, session_id: int, a: int, b: int) -> ComparisonNarrative | None:
+    return db.scalar(select(ComparisonNarrative).where(ComparisonNarrative.session_id == session_id, ComparisonNarrative.driver_a_id == a, ComparisonNarrative.driver_b_id == b))
+
+
+def plan_comparison_narrative(db: OrmSession, session_id: int, driver_a: int, driver_b: int, *, force: bool = False) -> tuple[ComparisonNarrative | None, StoryJob | None]:
     a, b = sorted((driver_a, driver_b))
     in_a = build_driver_session_input(db, session_id, a)
     in_b = build_driver_session_input(db, session_id, b)
@@ -70,16 +75,26 @@ def get_or_generate_comparison_narrative(db: OrmSession, session_id: int, driver
     sampled = gap[:: max(1, len(gap) // 15)] + ([gap[-1]] if gap and gap[-1] not in gap[:: max(1, len(gap) // 15)] else [])
     payload = {"meta": in_a["meta"], "driver_a": in_a, "driver_b": in_b, "cumulative_gap_a_minus_b_by_lap": sampled}
     h = stable_hash(payload)
-    existing = db.scalar(select(ComparisonNarrative).where(ComparisonNarrative.session_id == session_id, ComparisonNarrative.driver_a_id == a, ComparisonNarrative.driver_b_id == b))
+    existing = _existing(db, session_id, a, b)
     if existing and existing.input_hash == h and not force:
-        return existing
-    data, model_used = generate_json(SYSTEM_COMPARISON, "Comparison data (JSON):\n" + json.dumps(payload, indent=1, default=str), SCHEMA_COMPARISON)
-    if existing is None:
-        existing = ComparisonNarrative(session_id=session_id, driver_a_id=a, driver_b_id=b, comparison_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
-        db.add(existing)
-    existing.comparison_text = data["comparison_text"].strip()
-    existing.generated_at = utcnow()
-    existing.model_used = model_used
-    existing.input_hash = h
-    db.flush()
-    return existing
+        return existing, None
+
+    def save(db: OrmSession, data: dict, model_used: str) -> ComparisonNarrative:
+        row = _existing(db, session_id, a, b)
+        if row is None:
+            row = ComparisonNarrative(session_id=session_id, driver_a_id=a, driver_b_id=b, comparison_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
+            db.add(row)
+        row.comparison_text = data["comparison_text"].strip()
+        row.generated_at = utcnow()
+        row.model_used = model_used
+        row.input_hash = h
+        db.flush()
+        return row
+
+    user = "Comparison data (JSON):\n" + json.dumps(payload, indent=1, default=str)
+    return existing, StoryJob(f"comparison session={session_id} {a} vs {b}", SYSTEM_COMPARISON, user, SCHEMA_COMPARISON, save)
+
+
+def get_or_generate_comparison_narrative(db: OrmSession, session_id: int, driver_a: int, driver_b: int, *, force: bool = False) -> ComparisonNarrative:
+    existing, job = plan_comparison_narrative(db, session_id, driver_a, driver_b, force=force)
+    return existing if job is None else job.run(db)

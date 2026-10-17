@@ -1,11 +1,37 @@
-import { useState } from 'react'
-import { api, type Driver } from '../api/client'
+import { useState, type ReactNode } from 'react'
+import { api, STATIC, type Driver, type StoryEditInfo } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
+import { editorMode, editUrl, flagUrl, githubEnabled, pageUrl, revertUrl, type StoryText } from '../lib/stories'
 
 export function LoadingNote({ what }: { what: string }) {
   return (
     <div className="muted text-sm animate-pulse">
-      Generating {what} with Claude… the first request for a driver/session can take a minute; it is cached afterwards.
+      {STATIC ? `Loading ${what}…` : `Loading ${what}… if it hasn't been written yet, Claude writes it now (can take a minute).`}
+    </div>
+  )
+}
+
+/** Provenance + correction links under every AI story. `route` = page that shows this story (for flags). */
+export function StoryFooter({ info, story, route, meta }: { info: StoryEditInfo; story: StoryText; route: string; meta?: string }) {
+  const editor = editorMode()
+  const page = pageUrl(route)
+  return (
+    <div className="faint text-[11px] flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span>{info.edited ? 'Written by Claude · corrected by the editor' : 'Written by Claude from timing data'}{meta ? ` · ${meta}` : ''}</span>
+      {info.edited && info.edit_note && <span title="Editor's note">“{info.edit_note}”</span>}
+      {githubEnabled && (
+        <a className="underline hover:no-underline" href={flagUrl(info, story, page)} target="_blank" rel="noreferrer">Flag a problem</a>
+      )}
+      {githubEnabled && editor && (
+        <>
+          <a className="underline font-semibold" style={{ color: 'var(--accent)' }} href={editUrl(info, story)} target="_blank" rel="noreferrer">{info.edited ? 'Edit correction' : 'Edit'}</a>
+          {info.edited && <a className="underline" href={revertUrl(info)} target="_blank" rel="noreferrer">Revert to AI</a>}
+          <button className="underline" onClick={() => navigator.clipboard?.writeText(info.story_key)} title="Copy the story key (the file name under stories/)">{info.story_key}</button>
+        </>
+      )}
+      {editor && info.edit_stale && (
+        <span style={{ color: 'var(--status-critical)' }}>Claude rewrote this story after your correction (its data changed) - review your edit.</span>
+      )}
     </div>
   )
 }
@@ -15,7 +41,7 @@ export function ErrorNote({ error }: { error: Error }) {
 }
 
 /** Recap = facts. Analysis = hedged inference. Same visual pattern everywhere. */
-export function RecapAndAnalysis({ recap, analysis, meta }: { recap: string; analysis?: string; meta?: string }) {
+export function RecapAndAnalysis({ recap, analysis, meta, footer }: { recap: string; analysis?: string; meta?: string; footer?: ReactNode }) {
   return (
     <div className="space-y-3">
       <section>
@@ -29,6 +55,7 @@ export function RecapAndAnalysis({ recap, analysis, meta }: { recap: string; ana
         </section>
       )}
       {meta && <div className="faint text-[11px]">{meta}</div>}
+      {footer}
     </div>
   )
 }
@@ -50,14 +77,39 @@ export function NarrativePanel({ sessionId, eventId, driver, accent }: { session
         <>
           {story.loading && <LoadingNote what="the session story" />}
           {story.error && <ErrorNote error={story.error} />}
-          {story.data && <RecapAndAnalysis recap={story.data.narrative_text} analysis={story.data.strategy_analysis_text} meta={`${story.data.model_used} · ${new Date(story.data.generated_at + 'Z').toLocaleString()}`} />}
+          {story.data && (
+            <RecapAndAnalysis
+              recap={story.data.narrative_text}
+              analysis={story.data.strategy_analysis_text}
+              footer={
+                <StoryFooter
+                  info={story.data}
+                  route={`/race/${eventId}?session=${sessionId}&drivers=${driver.id}`}
+                  story={{ title: `${driver.name} · ${story.data.session_type} · ${story.data.story_key.split('/')[1]}`, text: story.data.narrative_text, analysis: story.data.strategy_analysis_text, generatedAt: story.data.generated_at }}
+                  meta={new Date(story.data.generated_at + 'Z').toLocaleDateString()}
+                />
+              }
+            />
+          )}
         </>
       )}
       {tab === 'weekend' && (
         <>
-          {arc.loading && <LoadingNote what="the weekend arc (this generates any missing session stories first)" />}
+          {arc.loading && <LoadingNote what="the weekend arc" />}
           {arc.error && <ErrorNote error={arc.error} />}
-          {arc.data && <RecapAndAnalysis recap={arc.data.arc_text} meta={`How the weekend connected · ${arc.data.model_used}`} />}
+          {arc.data && (
+            <RecapAndAnalysis
+              recap={arc.data.arc_text}
+              footer={
+                <StoryFooter
+                  info={arc.data}
+                  route={`/race/${eventId}?session=${sessionId}&drivers=${driver.id}`}
+                  story={{ title: `${driver.name} · weekend · ${arc.data.story_key.split('/')[1]}`, text: arc.data.arc_text, generatedAt: arc.data.generated_at }}
+                  meta="how the weekend connected"
+                />
+              }
+            />
+          )}
         </>
       )}
     </div>

@@ -1,4 +1,6 @@
-"""FastAPI layer. Narrative endpoints generate lazily on first request and cache by input_hash."""
+"""FastAPI layer (local use). Narrative endpoints return the stored story, generating it on first request
+if the pipeline hasn't yet; human edits from stories/*.md are layered on top. The published site
+uses the same handlers via scripts/export_static.py and never calls Claude."""
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -14,7 +16,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..analysis.midfield import identify_midfield_story
 from ..analysis.track import build_track_outline, outline_to_dict
-from ..analysis.turns import compute_turn_deltas
+from ..analysis.turns import get_or_compute_turn_deltas
 from ..db import get_sessionmaker, init_db
 from ..models import (
     PRACTICE_LIKE,
@@ -32,17 +34,20 @@ from ..models import (
     HeadlineQualifying,
     HeadlineRace,
     HeadlineSessionSummary,
+    ComparisonNarrative,
+    Lap,
     PitStop,
     PivotalMoment,
     Season,
     Session,
     SessionIngestionState,
 )
-from ..narratives.compare import build_comparison, get_or_generate_comparison_narrative
-from ..narratives.driver_session import get_or_generate_driver_session_narrative
+from ..narratives.compare import build_comparison, plan_comparison_narrative
+from ..narratives.driver_session import plan_driver_session_narrative
+from ..narratives.edits import present_comparison, present_driver_session, present_season_arc, present_weekend_arc, sync_if_changed
 from ..narratives.llm import NarrativeGenerationError
-from ..narratives.season_arc import get_or_generate_season_arc
-from ..narratives.weekend_arc import get_or_generate_weekend_arc
+from ..narratives.season_arc import plan_season_arc
+from ..narratives.weekend_arc import plan_weekend_arc
 
 app = FastAPI(title="F1 Data + Storytelling Tracker", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
@@ -89,12 +94,27 @@ def _driver_or_404(db: OrmSession, driver_id: int) -> Driver:
 
 
 def _narrative_errors(fn, *args, **kwargs):
+    sync_if_changed(args[0])  # pick up stories/*.md edits without a restart
     try:
         return fn(*args, **kwargs)
     except NarrativeGenerationError as exc:
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+def _stored_or_generate(db: OrmSession, plan, *args, **kwargs):
+    """The stored story, (re)written by Claude first if missing or out of date. If Claude can't be
+    reached, an older stored version is still better than an error."""
+    existing, job = plan(db, *args, **kwargs)
+    if job is None:
+        return existing
+    try:
+        return job.run(db)
+    except NarrativeGenerationError:
+        if existing is not None:
+            return existing
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +215,7 @@ def turn_deltas(session_id: int, driver_id: int, db: OrmSession = Depends(get_db
     _session_or_404(db, session_id)
     _driver_or_404(db, driver_id)
     try:
-        return compute_turn_deltas(db, session_id, driver_id)
+        return get_or_compute_turn_deltas(db, session_id, driver_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -204,8 +224,8 @@ def turn_deltas(session_id: int, driver_id: int, db: OrmSession = Depends(get_db
 def driver_narrative(session_id: int, driver_id: int, force: bool = False, db: OrmSession = Depends(get_db)) -> dict:
     _session_or_404(db, session_id)
     _driver_or_404(db, driver_id)
-    n = _narrative_errors(get_or_generate_driver_session_narrative, db, session_id, driver_id, force=force)
-    return _row(n)
+    n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, driver_id, force=force)
+    return present_driver_session(db, n)
 
 
 @app.get("/events/{event_id}/drivers/{driver_id}/weekend-arc")
@@ -213,8 +233,8 @@ def weekend_arc(event_id: int, driver_id: int, force: bool = False, db: OrmSessi
     _driver_or_404(db, driver_id)
     if db.get(Event, event_id) is None:
         raise HTTPException(404, f"event {event_id} not found")
-    arc = _narrative_errors(get_or_generate_weekend_arc, db, event_id, driver_id, force=force)
-    return _row(arc)
+    arc = _narrative_errors(_stored_or_generate, db, plan_weekend_arc, event_id, driver_id, force=force)
+    return present_weekend_arc(db, arc)
 
 
 @app.get("/seasons/{season_id}/arc")
@@ -222,8 +242,8 @@ def season_arc(season_id: int, subject_type: str = Query(..., pattern="^(driver|
     season = db.scalar(select(Season).where(Season.year == season_id)) if season_id > 1900 else db.get(Season, season_id)
     if season is None:
         raise HTTPException(404, f"season {season_id} not found")
-    arc = _narrative_errors(get_or_generate_season_arc, db, season.id, subject_type, subject_id, force=force)
-    return _row(arc)
+    arc = _narrative_errors(_stored_or_generate, db, plan_season_arc, season.id, subject_type, subject_id, force=force)
+    return present_season_arc(db, arc)
 
 
 @app.get("/sessions/{session_id}/pivotal-moments")
@@ -252,8 +272,8 @@ def midfield_spotlight(session_id: int, generate: bool = True, db: OrmSession = 
     if story is None:
         raise HTTPException(404, "no midfield story could be identified for this session")
     if generate:
-        n = _narrative_errors(get_or_generate_driver_session_narrative, db, session_id, story["driver_id"])
-        story["narrative"] = _row(n)
+        n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, story["driver_id"])
+        story["narrative"] = present_driver_session(db, n)
     return story
 
 
@@ -266,9 +286,28 @@ def compare(session_id: int, driver_a: int = Query(...), driver_b: int = Query(.
     _driver_or_404(db, driver_b)
     data = _narrative_errors(build_comparison, db, session_id, driver_a, driver_b)
     if generate:
-        n = _narrative_errors(get_or_generate_comparison_narrative, db, session_id, driver_a, driver_b)
-        data["narrative"] = _row(n)
+        n = _narrative_errors(_stored_or_generate, db, plan_comparison_narrative, session_id, driver_a, driver_b)
+        data["narrative"] = present_comparison(db, n)
     return data
+
+
+@app.get("/sessions/{session_id}/lap-times")
+def lap_times(session_id: int, db: OrmSession = Depends(get_db)) -> dict[str, list[list[int]]]:
+    """{driver_id: [[lap_number, lap_time_ms], ...]} - lets the static site build any two-driver gap chart."""
+    _session_or_404(db, session_id)
+    out: dict[str, list[list[int]]] = {}
+    for lap in db.scalars(select(Lap).where(Lap.session_id == session_id, Lap.lap_time_ms.is_not(None)).order_by(Lap.driver_id, Lap.lap_number)).all():
+        out.setdefault(str(lap.driver_id), []).append([lap.lap_number, lap.lap_time_ms])
+    return out
+
+
+@app.get("/sessions/{session_id}/comparisons")
+def stored_comparisons(session_id: int, db: OrmSession = Depends(get_db)) -> dict[str, dict]:
+    """Every head-to-head story already written for this session, keyed "<low id>-<high id>"."""
+    _session_or_404(db, session_id)
+    sync_if_changed(db)
+    rows = db.scalars(select(ComparisonNarrative).where(ComparisonNarrative.session_id == session_id)).all()
+    return {f"{c.driver_a_id}-{c.driver_b_id}": present_comparison(db, c) for c in rows}
 
 
 # ---------------------------------------------------------------------------

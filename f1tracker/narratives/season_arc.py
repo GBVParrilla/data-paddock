@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..models import Driver, Event, HeadlineRace, Season, SeasonArc, Session
 from ..util import utcnow
-from .llm import generate_json, stable_hash
+from .jobs import StoryJob
+from .llm import stable_hash
 from .prompts import SCHEMA_ARC, SYSTEM_SEASON_ARC
 
 log = logging.getLogger(__name__)
@@ -106,22 +107,36 @@ def build_season_arc_input(db: OrmSession, season_id: int, subject_type: str, su
     }
 
 
-def get_or_generate_season_arc(db: OrmSession, season_id: int, subject_type: str, subject_id: str, *, force: bool = False) -> SeasonArc:
+def _existing(db: OrmSession, season_id: int, subject_type: str, subject_id: str) -> SeasonArc | None:
+    return db.scalar(select(SeasonArc).where(SeasonArc.season_id == season_id, SeasonArc.subject_type == subject_type, SeasonArc.subject_id == str(subject_id)))
+
+
+def plan_season_arc(db: OrmSession, season_id: int, subject_type: str, subject_id: str, *, force: bool = False) -> tuple[SeasonArc | None, StoryJob | None]:
     if db.get(Season, season_id) is None:
         raise ValueError(f"season {season_id} not found")
     payload = build_season_arc_input(db, season_id, subject_type, subject_id)
     h = stable_hash(payload)
-    existing = db.scalar(select(SeasonArc).where(SeasonArc.season_id == season_id, SeasonArc.subject_type == subject_type, SeasonArc.subject_id == str(subject_id)))
+    existing = _existing(db, season_id, subject_type, subject_id)
     if existing and existing.input_hash == h and not force:
-        return existing
-    data, model_used = generate_json(SYSTEM_SEASON_ARC, "Season data (JSON):\n" + json.dumps(payload, indent=1, default=str), SCHEMA_ARC)
-    if existing is None:
-        existing = SeasonArc(season_id=season_id, subject_type=subject_type, subject_id=str(subject_id), through_round=payload["through_round"], arc_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
-        db.add(existing)
-    existing.through_round = payload["through_round"]
-    existing.arc_text = data["arc_text"].strip()
-    existing.generated_at = utcnow()
-    existing.model_used = model_used
-    existing.input_hash = h
-    db.flush()
-    return existing
+        return existing, None
+
+    def save(db: OrmSession, data: dict, model_used: str) -> SeasonArc:
+        row = _existing(db, season_id, subject_type, subject_id)
+        if row is None:
+            row = SeasonArc(season_id=season_id, subject_type=subject_type, subject_id=str(subject_id), through_round=payload["through_round"], arc_text="", generated_at=utcnow(), model_used=model_used, input_hash=h)
+            db.add(row)
+        row.through_round = payload["through_round"]
+        row.arc_text = data["arc_text"].strip()
+        row.generated_at = utcnow()
+        row.model_used = model_used
+        row.input_hash = h
+        db.flush()
+        return row
+
+    user = "Season data (JSON):\n" + json.dumps(payload, indent=1, default=str)
+    return existing, StoryJob(f"season arc {subject_type}={subject_id}", SYSTEM_SEASON_ARC, user, SCHEMA_ARC, save)
+
+
+def get_or_generate_season_arc(db: OrmSession, season_id: int, subject_type: str, subject_id: str, *, force: bool = False) -> SeasonArc:
+    existing, job = plan_season_arc(db, season_id, subject_type, subject_id, force=force)
+    return existing if job is None else job.run(db)

@@ -5,6 +5,12 @@ Ingests historical F1 session data (Jolpica + OpenF1), computes two tiers of ana
 generates hedged, data-grounded narratives with Claude Fable 5.1. Built for the 2026 season;
 structured so a live-ingestion mode can be added without a rearchitecture.
 
+Published as a static website on GitHub Pages: a daily GitHub Action processes new sessions, has
+Claude write every story **as the data is processed**, stores them in the database, and publishes
+the site. The site only displays stored stories. Anyone can flag a story; the editor corrects it
+by committing a Markdown file under [`stories/`](stories/README.md). See
+[Publishing](#publishing-github-pages) below.
+
 ## Quick start (one click)
 
 Double-click **`Start F1 Tracker.command`** in Finder. It starts the API, serves the built web UI,
@@ -21,8 +27,9 @@ and opens http://127.0.0.1:8000 in your browser. Close the terminal window to st
 cp .env.example .env
 ```
 
-The Anthropic key is only ever read from the `ANTHROPIC_API_KEY` environment variable
-(via `.env` for local dev). It is never a parameter, never logged, never in code.
+Locally, the Anthropic key is only ever read from the `ANTHROPIC_API_KEY` environment variable
+(via `.env`). It is never a parameter, never logged, never in code. The published site's GitHub
+Action uses no key at all: it authenticates with Workload Identity Federation (see Publishing).
 
 ## Ingest the season
 
@@ -42,10 +49,34 @@ Per-session scripts (used by the orchestrator, handy for debugging):
 `ingest_full_season.py` skips sessions already fully ingested (see `session_ingestion_state`).
 Use `--force` to redo, `--rounds 1,2` to limit, `--no-schedule` to skip the calendar refresh.
 
-## Narratives (lazy, cached)
+## Stories: AI first, human-correctable
 
-Narratives are generated on first request and cached by `input_hash`; they regenerate only
-when the underlying structured input changes (or `PROMPT_VERSION` in `config.py` is bumped).
+`scripts/run_pipeline.py` is the whole flow: ingest -> track outlines + turn deltas (fetched once and
+cached, since they need OpenF1 telemetry) -> Claude writes the stories, in order:
+
+1. one story per driver per session (`F1_STORY_SESSION_TYPES`, all sessions by default)
+2. teammate head-to-heads (`F1_COMPARISON_SESSION_TYPES`) and each driver's weekend arc
+3. a season "story so far" for every driver and team
+
+Stories are stored in the DB and cached by `input_hash`: they're rewritten only when their input data
+changes (or `PROMPT_VERSION` in `config.py` is bumped), so re-running is cheap. Claude calls run in
+parallel (`--workers`, `F1_STORY_WORKERS`), and `--max-new-stories` / `--time-budget-min` cap a run;
+whatever is left is picked up by the next run. A full season is roughly 4,000 stories (most of them
+per-driver session stories).
+
+```bash
+.venv/bin/python scripts/run_pipeline.py --year 2026                  # everything new
+.venv/bin/python scripts/run_pipeline.py --year 2026 --no-ingest      # only write missing stories
+.venv/bin/python scripts/export_static.py --out frontend/dist/data    # static JSON for the site
+```
+
+**Corrections** are Markdown files under `stories/` (format and layout: [stories/README.md](stories/README.md)).
+A correction is shown instead of the AI text; the AI version stays stored underneath, and deleting the
+file reverts to it. Corrections to session stories also feed into the driver's weekend arc next time
+it's written. If Claude later rewrites a story you corrected (because its data changed), the site flags
+the correction as needing review in editor mode.
+
+The local API still generates a missing story on first request (handy while developing):
 
 ```bash
 .venv/bin/python scripts/generate_narrative.py --session-id 5 --driver-id 3           # one driver
@@ -75,7 +106,7 @@ when the underlying structured input changes (or `PROMPT_VERSION` in `config.py`
 | `GET /sessions/{id}/midfield-spotlight` | `?generate=false` to skip the LLM call |
 | `GET /sessions/{id}/compare?driver_a=3&driver_b=4` | position-by-lap, stints, gap-over-time + comparative narrative |
 
-LLM-backed endpoints return `503` with a clear message if `ANTHROPIC_API_KEY` is missing.
+LLM-backed endpoints return the stored story when there is one; they return `503` only when a story has never been written and no Claude credentials are configured. `GET /sessions/{id}/lap-times` and `/sessions/{id}/comparisons` feed the static site's comparison view.
 
 ## Web UI (frontend/)
 
@@ -144,6 +175,58 @@ tests/                pure-function tests (pytest)
 - OpenF1 flags lap 1 of a race as a pit-out lap, so lap 1 is excluded from clean-lap analytics.
 - Positions per lap are derived from OpenF1's timestamped `position` feed at each lap's end time.
 - Driver identity is canonical on Jolpica `driverId`; OpenF1 car numbers map through the season's driver list.
+
+## Publishing (GitHub Pages)
+
+`.github/workflows/site.yml` builds the site and deploys it to `https://<user>.github.io/<repo>/`:
+
+| Trigger | What it does |
+|---|---|
+| daily 06:17 UTC | full: ingest new sessions, Claude writes their stories, save DB, publish |
+| push to `main` touching `stories/`, `frontend/`, `f1tracker/`, `scripts/` | publish-only: re-export with the latest code and corrections, no Claude calls |
+| Actions tab -> Site -> Run workflow | pick `full` / `stories-only` / `publish-only`, cap or force story writing |
+
+The database (data + stored stories) persists between runs as `f1.db.gz` on the **`db-snapshot`
+release**. Don't delete that release, or every story would have to be written again.
+
+**Claude access without an API key (Workload Identity Federation).** No Anthropic secret is stored in
+GitHub. Each run asks GitHub for a short-lived OIDC token that says "this is a run of
+GBVParrilla/data-paddock on `main`", and Anthropic exchanges it for a Claude token that lasts at most
+10 minutes. The SDK refreshes it automatically for the hours-long story runs, fetching a fresh GitHub
+token for every exchange (they're single-use). Runs from pull requests, forks or other branches can't
+get a token, because the federation rule only matches `main` of this repository.
+
+One-time setup:
+
+1. Settings -> Pages -> Build and deployment -> Source: **GitHub Actions**.
+2. In the Claude Console: [Workload identity](https://platform.claude.com/settings/workload-identity-federation)
+   -> **Connect workload** -> **GitHub Actions**. The wizard creates the issuer, a service account and a
+   federation rule. Use:
+   - issuer `https://token.actions.githubusercontent.com` (discovery)
+   - rule match: subject prefix `repo:GBVParrilla/data-paddock:ref:refs/heads/main`, audience
+     `https://api.anthropic.com`, claim `repository_owner` = `GBVParrilla`
+   - scope `workspace:developer`, token lifetime `600` (the wizard's defaults)
+3. Settings -> Secrets and variables -> Actions -> **Variables** (these are IDs, not secrets):
+   `ANTHROPIC_ORGANIZATION_ID` (Console -> Settings -> Organization), `ANTHROPIC_FEDERATION_RULE_ID`
+   (`fdrl_...`), `ANTHROPIC_SERVICE_ACCOUNT_ID` (`svac_...`), and `ANTHROPIC_WORKSPACE_ID`
+   (`wrkspc_...`, needed only if the rule covers more than one workspace).
+4. Optional variables: `F1_YEAR` (default 2026), `MAX_NEW_STORIES` (per-run cap on Claude calls, default 800).
+5. Actions -> Site -> Run workflow (`full`). The first backfill of a season takes a few daily runs,
+   because each run is capped by `MAX_NEW_STORIES` and a ~4.5 hour time budget.
+
+If the token exchange is refused, the run stops writing stories at once (it still publishes the site)
+and shows "Claude authentication failed" on the run summary. The Console's Workload identity ->
+authentication history page shows why the token was rejected; usually the subject doesn't match.
+
+**Flagging and fixing a story:** every story has a *Flag a problem* link that opens a prefilled GitHub
+issue (label `story-flag`). The issue links back to the story in editor mode (`?editor=1`), where
+*Edit* opens `stories/<key>.md` in GitHub's editor prefilled with the AI text. Commit it, and the site
+republishes with the correction in a few minutes. *Revert to AI* deletes the file. Editor mode only
+shows the links; GitHub itself decides who can commit.
+
+The static build (`VITE_STATIC=1`) reads JSON files instead of the API. It uses hash routes
+(`/#/race/3`) because Pages has no server-side routing. Teammate head-to-heads have a written story;
+the comparison charts still work for any two drivers.
 
 ## Live mode later (not built, not blocked)
 
