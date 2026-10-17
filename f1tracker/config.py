@@ -33,7 +33,7 @@ NARRATIVE_MODEL = os.environ.get("F1_NARRATIVE_MODEL") or "claude-haiku-5-5"  # 
 NARRATIVE_EFFORT = os.environ.get("F1_NARRATIVE_EFFORT") or "low"
 # Models that support server-side refusal fallback (Haiku 5.5 doesn't: the parameter is rejected or ignored).
 FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
-NARRATIVE_MAX_TOKENS = 4096
+NARRATIVE_MAX_TOKENS = 16000  # thinking counts toward it; ~1k is typical, but a few stories need much more
 # Bump when prompts change so cached narratives regenerate.
 PROMPT_VERSION = "1"
 
