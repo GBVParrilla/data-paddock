@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Callable, Iterator
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
 
 from .analysis.track import build_track_outline
@@ -99,11 +99,16 @@ def teammate_pairs(db: OrmSession, driver_ids: list[int]) -> list[tuple[int, int
 def precompute_track_outlines(season_id: int, rounds: list[int] | None = None) -> None:
     with db_session() as db:
         events = db.scalars(select(Event).where(Event.season_id == season_id).order_by(Event.round)).all()
-        missing = [e.id for e in events if db.get(TrackOutline, e.id) is None and (not rounds or e.round in rounds)]
+        # missing outlines, plus ones drawn before F1's official orientation/corners were available
+        missing = [e.id for e in events if (not rounds or e.round in rounds) and ((o := db.get(TrackOutline, e.id)) is None or o.orientation != "f1")]
     for eid in missing:
         try:
             with db_session() as db:
-                build_track_outline(db, eid)
+                had = db.get(TrackOutline, eid) is not None
+                build_track_outline(db, eid, force=True)
+                if had:  # corner numbering changed: turn-by-turn deltas must be recomputed
+                    sids = db.scalars(select(Session.id).where(Session.event_id == eid)).all()
+                    db.execute(delete(TurnDeltaCache).where(TurnDeltaCache.session_id.in_(sids)))
         except ValueError as exc:
             log.info("track outline for event %d not available yet: %s", eid, exc)
         except Exception as exc:  # network trouble: try again next run

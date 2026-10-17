@@ -369,6 +369,7 @@ class TrackOutline(Base):
     ref_distance_m_json: Mapped[str | None] = mapped_column(Text)  # cumulative meters, parallel to points/geo_points
     ref_elapsed_ms_json: Mapped[str | None] = mapped_column(Text)  # ms since lap start, parallel to points/geo_points
     turns_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # [{number, index, distance_m, apex_speed_kph}, ...]
+    orientation: Mapped[str | None] = mapped_column(String(12))  # "f1" = F1's map rotation + official corners, else "estimated"
 
 
 class TurnDeltaCache(Base):

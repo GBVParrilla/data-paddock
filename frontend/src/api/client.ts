@@ -57,7 +57,13 @@ export interface Event {
   id: number; season_id: number; round: number; name: string; circuit_name: string | null; country: string | null
   event_date: string | null; has_sprint: boolean; openf1_meeting_key: number | null; season_year: number
   lat: number | null; lon: number | null
+  winner?: Driver | null; podium?: Driver[]; completed?: boolean
 }
+export interface StandingRow {
+  position: number; driver_id: number; name: string; code: string | null; team: string | null
+  points: number; wins: number; podiums: number; results: Record<string, number | null>; round_points: Record<string, number>
+}
+export interface Standings { year: number; rounds: number[]; drivers: StandingRow[]; teams: { position: number; team: string; points: number }[] }
 export interface SessionRow {
   id: number; event_id: number; session_type: SessionType; start_time: string | null; end_time: string | null
   status: 'upcoming' | 'live' | 'completed'; openf1_session_key: number | null
@@ -71,6 +77,7 @@ export interface TrackOutline {
   drs_zones: [number, number][]; drs_zone_source: 'telemetry' | 'estimated_throttle' | 'none'
   geo_points: [number, number][] | null; geo_bbox: GeoBBox | null
   turns: Turn[]
+  orientation?: 'f1' | 'estimated'
   source: { session_id: number; driver_id: number; lap_number: number }; note: string
 }
 export interface TurnDelta { number: number; sector: 1 | 2 | 3; distance_m: number; apex_speed_kph: number; delta_ms: number }
@@ -132,6 +139,7 @@ export interface Comparison {
 export const api = {
   seasons: (s?: AbortSignal) => get<Season[]>('/seasons', s),
   events: (year: number, s?: AbortSignal) => get<Event[]>(`/seasons/${year}/events`, s),
+  standings: (year: number, s?: AbortSignal) => get<Standings>(`/seasons/${year}/standings`, s, undefined, 'No results yet this season.'),
   sessions: (eventId: number, s?: AbortSignal) => get<SessionRow[]>(`/events/${eventId}/sessions`, s),
   drivers: (s?: AbortSignal) => get<Driver[]>('/drivers', s),
   trackOutline: (eventId: number, s?: AbortSignal) => get<TrackOutline>(`/events/${eventId}/track-outline`, s),

@@ -123,32 +123,25 @@ PATH="$PWD/.venv/bin:$PATH" npm --prefix frontend run build
 PATH="$PWD/.venv/bin:$PATH" npm --prefix frontend run dev
 ```
 
-Pages: `/` (season picker + track grid), `/race/:eventId` (track detail: session tabs, sector-coloured
-outline, leaderboard, midfield spotlight, position-by-lap chart with pivotal-moment markers, driver
-stories, two-driver comparison), `/season/:year` (season story for a driver or team).
+Pages: `/` (latest race feature, championship snapshot, every circuit drawn in its winner's team colour),
+`/race/:eventId` (session switcher, headline tiles, classification, sector-coloured circuit, key moments,
+positions by lap, driver stories from practice to the race, teammate head-to-head, and a deep dive with
+tyre strategy, long-run pace, sectors and turn-by-turn deltas), `/season/:year` (title-fight chart,
+standings with each round's finish, and a season story per driver or team).
 
-**Track outlines** are our own asset: one clean lap of OpenF1 car-position telemetry per event, rotated
-(PCA on the x/y so the long axis runs horizontal - fixes tracks that would otherwise plot "sideways")
-and normalized into an SVG path by `GET /events/{id}/track-outline` (pre-generate with
-`scripts/generate_track_outlines.py --force` after backfilling lat/lon via `scripts/ingest_schedule.py`,
-run once via `scripts/migrate_add_track_geo.py` for an existing DB). Sector boundaries, the rotation, and
-the satellite overlay are all best-effort approximations, not measurements - the API gives no ground
-truth for any of them.
+**Track outlines** are drawn from one clean lap of OpenF1 car-position telemetry per event, turned to
+F1's own broadcast orientation using the rotation published by the MultiViewer circuit API
+(`f1tracker/clients/multiviewer.py`), which also supplies the official corner numbers. Events it doesn't
+cover fall back to a PCA rotation (long axis horizontal) and estimated corners; `orientation` on the
+outline says which one you got. Sector boundaries are approximations - the API gives no ground truth.
 
 - **Sector colouring** follows the F1 timing-screen convention: purple = outright fastest, then
-  green/yellow/red graded against the field average for that sector (no driver selected shows purple on
-  every sector, since each one there already is the session's fastest by construction).
-- **Boost zones** (dashed green stripe) mark sustained full-throttle, near-top-speed running - a proxy
-  for DRS zones, used because this OpenF1 mirror doesn't populate the real DRS-open telemetry field for
-  2026. If a session ever does carry that field, real DRS-open telemetry is used instead automatically.
-- **Satellite toggle** overlays the outline (translucent) on Esri World Imagery, centered on the
-  circuit's Jolpica lat/lon. OpenF1's local x/y axes aren't documented against true north, so alignment
-  is approximate, not surveyed.
-- **Team colours** highlight a selected driver everywhere (leaderboard bar, chart line, story border,
-  comparison). Two teammates get the same base hue with the second lightened, so they stay distinguishable.
-- **Position-by-lap chart**: background (unselected) lines are limited to drivers who made zero pit
-  stops, since pit-stop dips are just clutter until you pick that driver. A selected driver always shows
-  in full, with its own pit-stop laps marked, plus a tyre-compound strip underneath.
+  green/yellow/red graded against the field average for that sector.
+- **Team colours** identify drivers everywhere; teammates are told apart by a lighter shade or a dashed
+  line, and every coloured mark sits next to a text label.
+- **Position-by-lap chart**: every car in its team colour; selecting drivers dims the rest, and pit
+  stops are marked only for the selected drivers, with their tyre stints underneath. Safety car and VSC
+  periods are shaded.
 
 ## Layout
 
