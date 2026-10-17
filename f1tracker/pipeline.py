@@ -197,31 +197,30 @@ def generate_season_stories(year: int, *, force: bool = False, workers: int = ST
         season_id = season.id
         team_names = sorted({d.team for d in db.scalars(select(Driver)).all() if d.team})
 
-    # 1) one story per driver per session - everything else builds on these
-    def driver_plans():
-        for sid, _, stype, dids in sessions:
+    # Weekend by weekend, so each finished weekend is complete on the site (session stories, then the
+    # teammate head-to-heads and weekend arcs that build on them) even when a run hits its cap.
+    by_event: dict[int, list[tuple[int, str, list[int]]]] = {}
+    for sid, eid, stype, dids in sessions:
+        by_event.setdefault(eid, []).append((sid, stype, dids))
+
+    def driver_plans(event_sessions):
+        for sid, stype, dids in event_sessions:
             if stype in STORY_SESSION_TYPES:
                 for did in dids:
                     yield lambda db, sid=sid, did=did: plan_driver_session_narrative(db, sid, did, force=force)
 
-    log.info("stories: per-driver session stories")
-    _run_jobs(driver_plans(), report, budget, workers)
-
-    # 2) teammate head-to-heads + each driver's weekend arc
-    def second_plans():
-        for sid, pl in pairs.items():
-            for a, b in pl:
+    def weekend_plans(event_id, event_sessions):
+        for sid, _, _ in event_sessions:
+            for a, b in pairs.get(sid, []):
                 yield lambda db, sid=sid, a=a, b=b: plan_comparison_narrative(db, sid, a, b, force=force)
-        by_event: dict[int, set[int]] = {}
-        for _, eid, stype, dids in sessions:
-            if stype in STORY_SESSION_TYPES:
-                by_event.setdefault(eid, set()).update(dids)
-        for eid, dids in by_event.items():
-            for did in sorted(dids):
-                yield lambda db, eid=eid, did=did: plan_weekend_arc(db, eid, did, force=force, generate_missing=False)
+        drivers = sorted({d for _, stype, dids in event_sessions if stype in STORY_SESSION_TYPES for d in dids})
+        for did in drivers:
+            yield lambda db, eid=event_id, did=did: plan_weekend_arc(db, eid, did, force=force, generate_missing=False)
 
-    log.info("stories: teammate comparisons + weekend arcs")
-    _run_jobs(second_plans(), report, budget, workers)
+    for eid, event_sessions in by_event.items():  # sessions are already in round order
+        log.info("stories: event %d - session stories, then head-to-heads + weekend arcs", eid)
+        _run_jobs(driver_plans(event_sessions), report, budget, workers)
+        _run_jobs(weekend_plans(eid, event_sessions), report, budget, workers)
 
     # 3) season "story so far" for every driver and team with results
     def season_plans():
