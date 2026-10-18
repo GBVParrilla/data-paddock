@@ -27,7 +27,7 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 375, height: 812 } } },
   ],
   webServer: external ? undefined : {
-    command: `npx vite preview --base ${base} --port 4173 --strictPort`,
+    command: `npx vite preview --base ${base} --host 127.0.0.1 --port 4173 --strictPort`,
     url: baseURL,
     reuseExistingServer: true,
   },
