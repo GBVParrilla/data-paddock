@@ -72,8 +72,22 @@ class Driver(Base):
     driver_ref: Mapped[str] = mapped_column(String(60), unique=True, nullable=False)  # Jolpica driverId
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     code: Mapped[str | None] = mapped_column(String(3))
+    # Most recent team only - never use it for a specific event: seats change mid-season. Use Entry.
     team: Mapped[str | None] = mapped_column(String(80))
     number: Mapped[int | None] = mapped_column(Integer, index=True)
+
+
+class Entry(Base):
+    """Who drove for which team at one event (the entry list). Every per-event team lookup joins here."""
+
+    __tablename__ = "entries"
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), primary_key=True)
+    driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), primary_key=True)
+    team: Mapped[str] = mapped_column(String(80), nullable=False)  # display name, e.g. "Racing Bulls"
+    constructor_id: Mapped[str | None] = mapped_column(String(40))  # Jolpica constructorId, e.g. "rb"
+    car_number: Mapped[int | None] = mapped_column(Integer)
+    # practice-only entry (e.g. a rookie in FP1) - not part of the race weekend's line-up
+    practice_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Lap(Base):
@@ -90,7 +104,8 @@ class Lap(Base):
     top_speed_kph: Mapped[int | None] = mapped_column(Integer)
     compound: Mapped[str | None] = mapped_column(String(16))
     tyre_life: Mapped[int | None] = mapped_column(Integer)
-    is_pit_lap: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_pit_lap: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # in-lap or out-lap
+    is_pit_out_lap: Mapped[bool | None] = mapped_column(Boolean)  # OpenF1's own flag
     position: Mapped[int | None] = mapped_column(Integer)
     lap_start_time: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -153,6 +168,9 @@ class Result(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False, index=True)
     driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), nullable=False)
     position: Mapped[int | None] = mapped_column(Integer)  # classification order
+    # Jolpica positionText: the classified position ("18"), or R (retired, not classified),
+    # W (withdrawn / did not start), D (disqualified), N (not classified), E (excluded), F (failed to qualify)
+    position_text: Mapped[str | None] = mapped_column(String(4))
     points: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str | None] = mapped_column(String(40))  # Finished / Retired / +1 Lap / Q1 ...
     grid_position: Mapped[int | None] = mapped_column(Integer)
@@ -195,8 +213,14 @@ class HeadlineQualifying(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
     driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), primary_key=True)
     position: Mapped[int | None] = mapped_column(Integer)
+    # gap to the fastest time *in the segment named by gap_segment* (pole for Q3 runners)
     gap_to_pole_ms: Mapped[int | None] = mapped_column(Integer)
-    eliminated_in: Mapped[str | None] = mapped_column(String(2))  # Q1|Q2|Q3|None
+    gap_segment: Mapped[str | None] = mapped_column(String(2))  # Q1|Q2|Q3
+    eliminated_in: Mapped[str | None] = mapped_column(String(2))  # Q1|Q2|None (reached Q3)
+    status_code: Mapped[str | None] = mapped_column(String(8))  # OK|NO_TIME|DNS|DSQ
+    q1_ms: Mapped[int | None] = mapped_column(Integer)
+    q2_ms: Mapped[int | None] = mapped_column(Integer)
+    q3_ms: Mapped[int | None] = mapped_column(Integer)
 
 
 class HeadlineRace(Base):
@@ -208,7 +232,19 @@ class HeadlineRace(Base):
     positions_gained: Mapped[int | None] = mapped_column(Integer)
     points: Mapped[float] = mapped_column(Float, default=0.0)
     pit_stop_count: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[str | None] = mapped_column(String(40))  # Jolpica's wording ("Retired", "Lapped", ...)
+    status_code: Mapped[str | None] = mapped_column(String(4))  # FIN|LAP|DNF|NC|DNS|DSQ - what the site shows
+    classification_order: Mapped[int | None] = mapped_column(Integer)  # official order, unclassified cars included
+    laps_completed: Mapped[int | None] = mapped_column(Integer)
+    laps_down: Mapped[int | None] = mapped_column(Integer)
+
+
+class Meta(Base):
+    """Key/value bookkeeping (e.g. the transform version a DB was last rebuilt with)."""
+
+    __tablename__ = "meta"
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class HeadlineSessionSummary(Base):
@@ -345,7 +381,11 @@ class PivotalMoment(Base):
     driver_id: Mapped[int | None] = mapped_column(ForeignKey("drivers.id"))
     moment_type: Mapped[str] = mapped_column(String(20), nullable=False)
     magnitude_score: Mapped[float] = mapped_column(Float, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)  # headline + detail, for story inputs
+    headline: Mapped[str | None] = mapped_column(Text)  # one plain-language line
+    detail: Mapped[str | None] = mapped_column(Text)  # optional second line with the numbers
+    related_driver_id: Mapped[int | None] = mapped_column(ForeignKey("drivers.id"))  # the other car (undercut, pass)
+    end_lap: Mapped[int | None] = mapped_column(Integer)  # for periods (SC/VSC)
 
 
 class TrackOutline(Base):

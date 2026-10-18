@@ -30,51 +30,127 @@ def compute_headline_practice(laps: list[LapRow]) -> list[dict]:
     ]
 
 
-def _best_quali_time(r: ResultRow) -> int | None:
-    times = [r.get(k) for k in ("q1_ms", "q2_ms", "q3_ms") if r.get(k)]
-    return min(times) if times else None
+RETIRED_WORDS = ("retired", "accident", "collision", "engine", "gearbox", "hydraulics", "power", "brakes", "suspension", "spun", "damage", "withdrew")
 
 
-def compute_headline_qualifying(results: list[ResultRow]) -> list[dict]:
-    pole = next((r for r in results if r.get("position") == 1), None)
-    pole_ms = (pole.get("q3_ms") or _best_quali_time(pole)) if pole else None
-    out = []
-    for r in results:
-        if r.get("q3_ms"):
-            eliminated = None
-        elif r.get("q2_ms"):
-            eliminated = "Q2"
+def race_status(position_text: str | None, status: str | None, laps: int | None, winner_laps: int | None) -> tuple[str, int | None]:
+    """(status code, classified position) from Jolpica's positionText + status.
+
+    Codes: FIN (lead lap), LAP (classified, laps down), DNF (retired; may still be classified if it
+    covered 90% of the distance), NC (running but not classified), DNS, DSQ.
+    """
+    pt = (position_text or "").strip().upper()
+    raw = (status or "").strip().lower()
+    position = int(pt) if pt.isdigit() else None
+    if pt == "W" or raw in ("did not start", "dns", "withdrew", "withdrawn") or (pt == "" and raw.startswith("did not")):
+        return "DNS", None
+    if pt in ("D", "E") or raw in ("disqualified", "dsq", "excluded"):
+        return "DSQ", None
+    if pt == "F":
+        return "DNS", None  # failed to qualify: never started
+    if pt == "N":
+        return "NC", None
+    if pt == "R":
+        return "DNF", None
+    if position is None and not pt:  # older rows without positionText
+        if raw in ("finished",) or raw.startswith("+") or raw == "lapped":
+            position = -1
         else:
-            eliminated = "Q1"
-        # gap is measured on the last segment the driver reached (Q3 time for Q3 runners, etc.) vs pole's Q3
-        best = r.get("q3_ms") or r.get("q2_ms") or r.get("q1_ms")
-        gap = (best - pole_ms) if (best is not None and pole_ms is not None) else None
-        out.append(dict(driver_id=r["driver_id"], position=r.get("position"), gap_to_pole_ms=gap, eliminated_in=eliminated))
+            return "DNF", None
+    retired = any(w in raw for w in RETIRED_WORDS)
+    if retired:
+        return "DNF", position if position and position > 0 else None
+    down = (winner_laps - laps) if (winner_laps is not None and laps is not None) else None
+    code = "LAP" if (down or 0) > 0 or raw == "lapped" or raw.startswith("+") else "FIN"
+    return code, position if position and position > 0 else None
+
+
+def compute_headline_qualifying(results: list[ResultRow], entrants: list[int] | None = None) -> list[dict]:
+    """Every entrant, with the gap measured inside one segment.
+
+    A driver knocked out in Q1 is compared with the fastest Q1 time, a Q2 exit with the fastest Q2
+    time, and a Q3 runner with pole - never a Q3 lap against a Q1 lap. Entrants with no result
+    (no time set) are listed last as NO_TIME.
+    """
+    out = []
+    seg_best = {}
+    field = max(len(results), len(entrants or []))
+    q2_cut = 10 + (field - 10) // 2  # 22 cars: 6 out in Q1, 6 in Q2; 20 cars: 5 and 5
+    for key in ("q1_ms", "q2_ms", "q3_ms"):
+        times = [r[key] for r in results if r.get(key)]
+        seg_best[key] = min(times) if times else None
+    for r in sorted(results, key=lambda r: r.get("position") or 999):
+        q1, q2, q3 = r.get("q1_ms"), r.get("q2_ms"), r.get("q3_ms")
+        pos = r.get("position")
+        # a Q3 runner who set no Q3 time is still a Q3 runner: the classification position says so
+        by_pos = "Q3" if pos and pos <= 10 else "Q2" if pos and pos <= q2_cut else "Q1"
+        by_time = "Q3" if q3 else "Q2" if q2 else "Q1"
+        reached = max(by_pos, by_time)
+        seg_key = {"Q1": "q1_ms", "Q2": "q2_ms", "Q3": "q3_ms"}[reached]
+        mine = r.get(seg_key)
+        gap = (mine - seg_best[seg_key]) if (mine is not None and seg_best[seg_key] is not None) else None
+        status = "OK" if (q1 or q2 or q3) else "NO_TIME"
+        out.append(
+            dict(
+                driver_id=r["driver_id"],
+                position=r.get("position"),
+                gap_to_pole_ms=gap,
+                gap_segment=reached if gap is not None else None,
+                eliminated_in=None if reached == "Q3" else reached,
+                status_code=status,
+                q1_ms=q1,
+                q2_ms=q2,
+                q3_ms=q3,
+            )
+        )
+    listed = {r["driver_id"] for r in out}
+    for did in entrants or []:
+        if did not in listed:
+            out.append(dict(driver_id=did, position=None, gap_to_pole_ms=None, gap_segment=None, eliminated_in="Q1", status_code="NO_TIME", q1_ms=None, q2_ms=None, q3_ms=None))
     return out
 
 
 def compute_headline_race(results: list[ResultRow], pit_stops: list[dict]) -> list[dict]:
+    from ..analysis.strategy import real_stops
+
     stops = defaultdict(int)
-    for p in pit_stops:
+    for p in real_stops(pit_stops):
         stops[p["driver_id"]] += 1
+    ordered = sorted(results, key=lambda r: r.get("position") or 999)
+    winner = next((r for r in ordered if (r.get("position_text") or str(r.get("position"))) == "1"), ordered[0] if ordered else None)
+    winner_laps = winner.get("laps_completed") if winner else None
     out = []
-    for r in results:
+    for i, r in enumerate(ordered):
+        code, pos = race_status(r.get("position_text"), r.get("status"), r.get("laps_completed"), winner_laps)
+        if pos == -1:  # legacy row without positionText: trust the stored order
+            pos = r.get("position")
         grid = r.get("grid_position")
-        pos = r.get("position")
-        classified = r.get("status") in ("Finished", "Lapped") or (r.get("status") or "").startswith("+")
-        gained = (grid - pos) if (grid and pos and classified) else None
+        laps = r.get("laps_completed")
+        gained = (grid - pos) if (grid and pos) else None
         out.append(
             dict(
                 driver_id=r["driver_id"],
                 finish_position=pos,
+                classification_order=i + 1,
                 grid_position=grid,
                 positions_gained=gained,
                 points=float(r.get("points") or 0),
                 pit_stop_count=stops.get(r["driver_id"], 0),
                 status=r.get("status"),
+                status_code=code,
+                laps_completed=laps if code != "DNS" else 0,
+                laps_down=(winner_laps - laps) if (code == "LAP" and winner_laps is not None and laps is not None) else None,
             )
         )
     return out
+
+
+def race_counts(rows: list[dict]) -> dict[str, int]:
+    """The one place DNF/DNS/DSQ are counted; cards, tables and stories all read this."""
+    c = defaultdict(int)
+    for r in rows:
+        c[r["status_code"]] += 1
+    return {"classified": sum(1 for r in rows if r.get("finish_position")), "dnf": c["DNF"] + c["NC"], "dns": c["DNS"], "dsq": c["DSQ"]}
 
 
 def compute_session_summary(
@@ -123,8 +199,11 @@ def compute_session_summary(
             m = max(movers, key=lambda r: r["positions_gained"])
             if m["positions_gained"] >= 3:
                 text += f". Biggest mover: {names.get(m['driver_id'], '?')} (P{m['grid_position']} to P{m['finish_position']})"
-        dnfs = [names.get(r["driver_id"], "?") for r in race if (r.get("status") or "").lower() in ("retired", "accident", "collision", "engine", "gearbox", "hydraulics", "disqualified")]
+        dnfs = [names.get(r["driver_id"], "?") for r in race if r.get("status_code") in ("DNF", "NC")]
+        dns = [names.get(r["driver_id"], "?") for r in race if r.get("status_code") == "DNS"]
         if dnfs:
             text += f". Retirements: {', '.join(dnfs)}"
+        if dns:
+            text += f". Did not start: {', '.join(dns)}"
         return text + "."
     return f"No summary available for {label} at the {event_name}."

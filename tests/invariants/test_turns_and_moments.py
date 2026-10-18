@@ -52,13 +52,11 @@ def _race_control(sid):
 def test_every_neutralisation_is_a_key_moment(sid):
     """#14: each SC, VSC and red flag in race control is among the key moments."""
     rc = _race_control(sid)
-    deployed = [m for m in rc if re.search(r"(SAFETY CAR|VSC).*DEPLOYED|DEPLOYED.*(SAFETY CAR|VSC)", m["message"].upper())]
-    reds = [m for m in rc if (m.get("flag") or "").upper() == "RED"]
+    periods = rc["periods"]
     moments = load(f"sessions/{sid}/pivotal-moments")
     neutral = [m for m in moments if m["moment_type"] in ("safety_car", "vsc", "red_flag")]
-    assert len(neutral) >= len(deployed) + (1 if reds else 0), (
-        f"{len(deployed)} SC/VSC deployments and {len(reds)} red-flag messages, but only {len(neutral)} neutralisation moments"
-    )
+    missing = [p for p in periods if not any(m["lap_number"] == p["start_lap"] for m in neutral)]
+    assert not missing, f"neutralisations without a key moment: {missing} (moments: {[(m['lap_number'], m['moment_type']) for m in neutral]})"
 
 
 @params("R", "S")

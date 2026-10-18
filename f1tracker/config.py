@@ -23,6 +23,11 @@ OPENF1_MIN_INTERVAL_S = 0.55
 HTTP_MAX_RETRIES = 6
 HTTP_TIMEOUT_S = 60
 
+# --- Derived data ----------------------------------------------------------------
+# Bump when transforms / entries / moments change meaning: the next pipeline run re-syncs entry
+# lists, refetches results that predate positionText, and recomputes every derived table.
+DATA_VERSION = "2"
+
 # --- Narrative generation ----------------------------------------------------
 # One-line change to move models later.
 # Haiku 5.5 at low effort: the facts are pre-computed, so the model only has to write them up.

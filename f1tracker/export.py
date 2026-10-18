@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from .analysis.track import outline_to_dict
+from .analysis.turns import TURN_DELTA_VERSION
 from .api import main as api
 from .models import DriverSessionNarrative, DriverWeekendArc, Event, Season, SeasonArc, Session, SessionIngestionState, TrackOutline, TurnDeltaCache
 from .narratives.edits import present_driver_session, present_season_arc, present_weekend_arc, slug, sync_story_edits
@@ -77,13 +78,16 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
         write(f"{base}/detail", api.session_detail(s.id, driver_id=None, db=db))
         write(f"{base}/pivotal-moments", api.pivotal_moments(s.id, db=db))
         write(f"{base}/chart-annotations", api.chart_annotations(s.id, db=db))
+        write(f"{base}/race-control", api.race_control(s.id, db=db))
         write(f"{base}/lap-times", api.lap_times(s.id, db=db))
         write(f"{base}/comparisons", api.stored_comparisons(s.id, db=db))
         _try(write, f"{base}/midfield-spotlight", api.midfield_spotlight, s.id, generate=False, db=db)
         for n in db.scalars(select(DriverSessionNarrative).where(DriverSessionNarrative.session_id == s.id)).all():
             write(f"{base}/drivers/{n.driver_id}/narrative", present_driver_session(db, n))
         for td in db.scalars(select(TurnDeltaCache).where(TurnDeltaCache.session_id == s.id, TurnDeltaCache.payload_json.is_not(None))).all():
-            write(f"{base}/drivers/{td.driver_id}/turn-deltas", json.loads(td.payload_json))
+            payload = json.loads(td.payload_json)
+            if payload.get("version") == TURN_DELTA_VERSION:  # older breakdowns didn't add up; wait for the recompute
+                write(f"{base}/drivers/{td.driver_id}/turn-deltas", payload)
 
     log.info("exported %d files (%.1f MB) to %s", write.files, write.bytes / 1e6, out)
     return write

@@ -6,7 +6,12 @@ import re
 
 from .conftest import DATA_DIR
 
-FORBIDDEN = re.compile(r"\bNone\b|\bnull\b|\bundefined\b|\bNaN\b|\[object|BAD_FORMAT|\{\}|<br>|```|\{\"")
+# "None" only mid-sentence ("lap None"); "None of his sectors..." is English. Code tokens are
+# case-sensitive; the model's leaked self-talk ("Note to reviewer") is matched in any case.
+FORBIDDEN = re.compile(
+    r"(?<![.!?:]\s)(?<!^)\bNone\b|\bnull\b|\bundefined\b|\bNaN\b|\[object|BAD_FORMAT|\{\}|```|\{\""
+    r"|(?i:</?br\s*/?>|</?[a-z_]+_text>|note to reviewer|invalid trailing)"
+)
 # Keys holding text shown on the page (stories, moment descriptions, labels, reasons, names).
 USER_FACING = re.compile(r"(text|description|label|reason|summary|headline|story|analysis|name|note|title)$", re.I)
 

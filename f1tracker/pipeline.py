@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from .analysis.track import build_track_outline
 from .analysis.turns import get_or_compute_turn_deltas
-from .config import COMPARISON_SESSION_TYPES, STORY_SESSION_TYPES, STORY_WORKERS
+from .config import COMPARISON_SESSION_TYPES, DATA_VERSION, STORY_SESSION_TYPES, STORY_WORKERS
 from .db import db_session
 from .models import (
     PRACTICE_LIKE,
@@ -32,6 +32,9 @@ from .models import (
     HeadlinePractice,
     HeadlineQualifying,
     HeadlineRace,
+    Lap,
+    Meta,
+    Result,
     Season,
     Session,
     SessionIngestionState,
@@ -90,12 +93,65 @@ def session_driver_ids(db: OrmSession, session: Session) -> list[int]:
     return sorted(db.scalars(select(model.driver_id).where(model.session_id == session.id)).all())
 
 
-def teammate_pairs(db: OrmSession, driver_ids: list[int]) -> list[tuple[int, int]]:
-    drivers = {d.id: d for d in db.scalars(select(Driver).where(Driver.id.in_(driver_ids))).all()}
-    return [(a, b) for a, b in combinations(sorted(driver_ids), 2) if drivers[a].team and drivers[a].team == drivers[b].team]
+def teammate_pairs(db: OrmSession, event_id: int, driver_ids: list[int]) -> list[tuple[int, int]]:
+    """Pairs who drove for the same team at this event (a stand-in pairs with his teammate that weekend)."""
+    from .ingest.entries import entry_map
+
+    entries = entry_map(db, event_id)
+    team = {d: entries[d].team for d in driver_ids if d in entries and not entries[d].practice_only}
+    return [(a, b) for a, b in combinations(sorted(team), 2) if team[a] == team[b]]
 
 
 # ---------------------------------------------------------------------------
+def upgrade_derived_data(season_id: int, *, force: bool = False) -> bool:
+    """Bring a database built by older code up to DATA_VERSION (idempotent; a no-op once current).
+
+    Re-syncs every event's entry list, refetches race/sprint results stored before positionText
+    was kept, and recomputes all derived tables and moments. Needs network (Jolpica, OpenF1).
+    """
+    from .ingest.details import repair_pit_laps
+    from .ingest.entries import sync_event_entries
+    from .ingest.results import ingest_session_results
+    from .transforms.runner import run_transforms
+
+    with db_session() as db:
+        current = db.get(Meta, "data_version")
+        if current is not None and current.value == DATA_VERSION and not force:
+            return False
+        events = db.scalars(select(Event.id).where(Event.season_id == season_id).order_by(Event.round)).all()
+        done = processed_sessions(db, season_id)
+        stale_results = [
+            s.id for s in done
+            if s.session_type in ("R", "S") and db.scalar(select(Result.id).where(Result.session_id == s.id, Result.position_text.is_(None)).limit(1))
+        ]
+        session_ids = [s.id for s in done]
+        unaligned = [
+            s.id for s in done
+            if s.session_type in ("R", "S") and db.scalar(select(Lap.id).where(Lap.session_id == s.id, Lap.is_pit_out_lap.is_(None)).limit(1))
+        ]
+    log.info("upgrading derived data to version %s: %d events, %d results to refetch, %d sessions to recompute", DATA_VERSION, len(events), len(stale_results), len(session_ids))
+    for sid in stale_results:
+        with db_session() as db:
+            ingest_session_results(db, sid)
+    for sid in unaligned:  # pit in-laps before OpenF1's out-lap flag was used
+        with db_session() as db:
+            log.info("session %d: %d pit stops re-aligned", sid, repair_pit_laps(db, sid))
+    for eid in events:
+        try:
+            with db_session() as db:
+                sync_event_entries(db, eid)
+        except Exception as exc:  # an event without data yet: its entries arrive with its sessions
+            log.warning("entries for event %d: %s", eid, exc)
+    for sid in session_ids:
+        with db_session() as db:
+            run_transforms(db, sid)
+    with db_session() as db:
+        row = db.get(Meta, "data_version") or Meta(key="data_version", value="")
+        row.value = DATA_VERSION
+        db.merge(row)
+    return True
+
+
 def precompute_track_outlines(season_id: int, rounds: list[int] | None = None) -> None:
     with db_session() as db:
         events = db.scalars(select(Event).where(Event.season_id == season_id).order_by(Event.round)).all()
@@ -115,6 +171,17 @@ def precompute_track_outlines(season_id: int, rounds: list[int] | None = None) -
             log.warning("track outline for event %d failed: %s", eid, exc)
 
 
+def _turns_stale(cached: TurnDeltaCache | None) -> bool:
+    """Missing, or computed by an older method (a cached failure stays cached)."""
+    import json
+
+    from .analysis.turns import TURN_DELTA_VERSION
+
+    if cached is None:
+        return True
+    return bool(cached.payload_json) and json.loads(cached.payload_json).get("version") != TURN_DELTA_VERSION
+
+
 def precompute_turn_deltas(season_id: int, *, rounds: list[int] | None = None, deadline: float | None = None) -> None:
     with db_session() as db:
         todo = []
@@ -124,7 +191,7 @@ def precompute_turn_deltas(season_id: int, *, rounds: list[int] | None = None, d
             outline = db.get(TrackOutline, s.event_id)
             if outline is None or not outline.turns_json or outline.turns_json == "[]":
                 continue
-            todo += [(s.id, d) for d in session_driver_ids(db, s) if db.get(TurnDeltaCache, (s.id, d)) is None]
+            todo += [(s.id, d) for d in session_driver_ids(db, s) if _turns_stale(db.get(TurnDeltaCache, (s.id, d)))]
     log.info("turn deltas to compute: %d", len(todo))
     for i, (sid, did) in enumerate(todo):
         if deadline is not None and time.monotonic() >= deadline:
@@ -132,7 +199,7 @@ def precompute_turn_deltas(season_id: int, *, rounds: list[int] | None = None, d
             return
         try:
             with db_session() as db:
-                get_or_compute_turn_deltas(db, sid, did)
+                get_or_compute_turn_deltas(db, sid, did, force=True)
         except ValueError:
             pass  # cached as unavailable
         except Exception as exc:
@@ -198,9 +265,11 @@ def generate_season_stories(year: int, *, force: bool = False, workers: int = ST
         if season is None:
             raise RuntimeError(f"season {year} not in DB")
         sessions = [(s.id, s.event_id, s.session_type, session_driver_ids(db, s)) for s in processed_sessions(db, season.id)]
-        pairs = {sid: teammate_pairs(db, dids) for sid, _, stype, dids in sessions if stype in COMPARISON_SESSION_TYPES}
+        pairs = {sid: teammate_pairs(db, eid, dids) for sid, eid, stype, dids in sessions if stype in COMPARISON_SESSION_TYPES}
         season_id = season.id
-        team_names = sorted({d.team for d in db.scalars(select(Driver)).all() if d.team})
+        from .ingest.entries import usual_teams
+
+        team_names = sorted(set(usual_teams(db, season_id).values()))
 
     # Weekend by weekend, so each finished weekend is complete on the site (session stories, then the
     # teammate head-to-heads and weekend arcs that build on them) even when a run hits its cap.
@@ -264,6 +333,7 @@ def run_pipeline(
         if season is None:
             raise RuntimeError(f"season {year} not in DB - run with ingest enabled first")
         season_id = season.id
+    upgrade_derived_data(season_id)
     if ingest:
         precompute_track_outlines(season_id, rounds)
         precompute_turn_deltas(season_id, rounds=rounds, deadline=deadline)

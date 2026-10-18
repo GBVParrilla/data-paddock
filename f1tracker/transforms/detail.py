@@ -102,12 +102,18 @@ def compute_degradation(laps: list[LapRow], stints: list[StintRow]) -> list[dict
     return out
 
 
-def compute_position_by_lap(laps: list[LapRow]) -> list[dict]:
-    return [
-        dict(driver_id=lp["driver_id"], lap_number=lp["lap_number"], position=lp["position"])
-        for lp in laps
-        if lp.get("position") is not None
-    ]
+def compute_position_by_lap(laps: list[LapRow], finish: dict[int, tuple[int, int]] | None = None) -> list[dict]:
+    """Position at the end of each lap.
+
+    OpenF1 gives no duration for a car's final lap, so its end (and position) is unknown from
+    timing alone. `finish` maps driver -> (classified position, laps completed): the classification
+    is the order at the flag, so a classified car's final lap takes its classified position.
+    """
+    rows = {(lp["driver_id"], lp["lap_number"]): lp["position"] for lp in laps if lp.get("position") is not None}
+    for driver_id, (position, laps_done) in (finish or {}).items():
+        if position and laps_done:
+            rows.setdefault((driver_id, laps_done), position)
+    return [dict(driver_id=d, lap_number=n, position=p) for (d, n), p in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[1]))]
 
 
 def compute_sector_deltas(laps: list[LapRow]) -> list[dict]:

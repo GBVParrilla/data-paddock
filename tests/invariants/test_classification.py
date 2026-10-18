@@ -17,7 +17,7 @@ def test_race_status_is_an_enum_and_counts_agree(sid):
     codes = [r.get("status_code") for r in rows]
     assert set(codes) <= STATUS_CODES, f"unknown status codes {set(codes) - STATUS_CODES}"
     counts = Counter(codes)
-    summary = h.get("summary") or {}
+    summary = h.get("counts") or {}
     assert summary.get("dnf") == counts["DNF"] + counts["NC"], f"summary {summary} vs rows {dict(counts)}"
     assert summary.get("dns") == counts["DNS"], f"summary {summary} vs rows {dict(counts)}"
     assert summary.get("dsq") == counts["DSQ"], f"summary {summary} vs rows {dict(counts)}"

@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from ..db import db_session
 from ..ingest.details import ingest_session_details
+from ..ingest.entries import sync_event_entries
 from ..ingest.results import ingest_session_results
 from ..ingest.schedule import ingest_schedule
 from ..ingest.state import get_state
@@ -70,12 +71,13 @@ def ingest_full_season(year: int, *, rounds: list[int] | None = None, force: boo
                 continue
             sessions = db.scalars(select(Session).where(Session.event_id == ev.id)).all()
             sessions.sort(key=lambda s: SESSION_ORDER[s.session_type])
-            plan.append((ev.round, ev.name, ev.has_sprint, [(s.id, s.session_type, s.status, s.end_time) for s in sessions]))
+            plan.append((ev.id, ev.round, ev.name, ev.has_sprint, [(s.id, s.session_type, s.status, s.end_time) for s in sessions]))
 
     now = utcnow()
-    for rnd, name, has_sprint, sessions in plan:
+    for event_id, rnd, name, has_sprint, sessions in plan:
         report.rounds_seen += 1
         log.info("=== Round %d: %s (%s weekend) ===", rnd, name, "sprint" if has_sprint else "standard")
+        entries_synced = False
         for sid, stype, status, end_time in sessions:
             report.sessions_seen += 1
             if status != "completed" and (end_time is None or end_time > now):
@@ -92,12 +94,16 @@ def ingest_full_season(year: int, *, rounds: list[int] | None = None, force: boo
                 report.sessions_skipped += 1
                 continue
             r_ok = d_ok = True
+            if need_results and stype in ("Q", "R"):
+                entries_synced = False  # official line-up just (re)appeared: resync after these results
             if need_results:
                 r_ok = _step(report, sid, "results", lambda db: ingest_session_results(db, sid))
                 report.results_ok += int(r_ok)
             if need_details:
                 d_ok = _step(report, sid, "details", lambda db: ingest_session_details(db, sid))
                 report.details_ok += int(d_ok)
+            if not entries_synced:  # the entry list (team per driver) must exist before transforms use it
+                entries_synced = _step(report, sid, "entries", lambda db: sync_event_entries(db, event_id))
             if need_transforms and (r_ok or d_ok):
                 t_ok = _step(report, sid, "transforms", lambda db: run_transforms(db, sid))
                 report.transforms_ok += int(t_ok)
