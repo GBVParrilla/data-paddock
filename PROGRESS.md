@@ -112,6 +112,13 @@ Local suite on the production snapshot (upgraded) + pilot turn deltas: unit 44 p
 
 (first pass after the pilot stories exist; the narrative persona scores depend on them)
 
+**Pass 0 (layout and template text only, before the pilot stories; not scored).** Desktop and 375px screenshots of home, races, standings, a race, a qualifying session, a driver page, a head-to-head and the R12 red-flag race. Found and fixed:
+- Templates said "In qualifying he was missed out by 0.280s". Cut-line margins are now verb phrases ("he got through by", "he missed out by").
+- Head to head said "Gasly made 1 stop, Ocon 1." It now says "Both stopped once."
+- The race summary listed one label per neutralisation ("VSC · VSC · VSC"). It now counts them by kind ("1 Red · 2 VSC").
+- The empty "Positions by lap" panel in full-page screenshots is the lazy chart not yet scrolled into view; scrolled, it renders all 22 lines with the red flag and VSC bands.
+- CI: the crawler's preview server bound to IPv6 on the runner. It is now pinned to 127.0.0.1.
+
 ## LLM usage log
 
 No calls from this sandbox. Each workflow run now writes "Claude calls" and "published as fact-sheet templates" to the job summary; they will be copied here.
