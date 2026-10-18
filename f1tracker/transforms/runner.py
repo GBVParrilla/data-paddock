@@ -19,6 +19,7 @@ from ..models import (
     DetailSectorDelta,
     DetailStintTimeline,
     Driver,
+    Entry,
     Event,
     HeadlinePractice,
     HeadlineQualifying,
@@ -79,7 +80,8 @@ def run_transforms(db: OrmSession, session_id: int) -> dict[str, int]:
         practice_rows = headline.compute_headline_practice(laps)
         counts["headline_practice"] = _replace(db, HeadlinePractice, session_id, practice_rows, ["session_id", "driver_id"])
     if stype in QUALI_LIKE:
-        quali_rows = headline.compute_headline_qualifying(results)
+        entrants = db.scalars(select(Entry.driver_id).where(Entry.event_id == event.id, Entry.practice_only.is_(False))).all()
+        quali_rows = headline.compute_headline_qualifying(results, list(entrants))
         counts["headline_qualifying"] = _replace(db, HeadlineQualifying, session_id, quali_rows, ["session_id", "driver_id"])
         counts["detail_qualifying_segments"] = _replace(
             db, DetailQualifyingSegment, session_id, detail.compute_qualifying_segments(results), ["session_id", "driver_id", "segment"]
@@ -88,7 +90,9 @@ def run_transforms(db: OrmSession, session_id: int) -> dict[str, int]:
         race_rows = headline.compute_headline_race(results, pits)
         counts["headline_race"] = _replace(db, HeadlineRace, session_id, race_rows, ["session_id", "driver_id"])
         counts["detail_position_by_lap"] = _replace(
-            db, DetailPositionByLap, session_id, detail.compute_position_by_lap(laps), ["session_id", "driver_id", "lap_number"]
+            db, DetailPositionByLap, session_id,
+            detail.compute_position_by_lap(laps, {r["driver_id"]: (r["finish_position"], r["laps_completed"]) for r in race_rows}),
+            ["session_id", "driver_id", "lap_number"],
         )
 
     summary = headline.compute_session_summary(stype, event.name, names, practice=practice_rows, qualifying=quali_rows, race=race_rows)

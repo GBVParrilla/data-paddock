@@ -93,7 +93,50 @@ def _fetch_reference_location(session_key: int, driver_number: int, start: str, 
     return tuple(openf1.fetch_location(session_key, driver_number, start, end))
 
 
+TURN_DELTA_VERSION = 2  # 2: session-best reference, contiguous corner zones, explicit remainder
+
+
+def _clean_location(raw) -> list[dict]:
+    raw = [p for p in raw if p.get("x") is not None and p.get("y") is not None and p.get("date")]
+    raw = [p for p in raw if not (p["x"] == 0 and p["y"] == 0)]
+    raw.sort(key=lambda p: p["date"])
+    return openf1.location_to_meters(raw)
+
+
+def _lap_location(session: Session, driver: Driver, lap: Lap, *, cached: bool = False) -> list[dict]:
+    start = lap.lap_start_time
+    end = start + timedelta(milliseconds=lap.lap_time_ms + 300)
+    fetch = _fetch_reference_location if cached else (lambda *a: openf1.fetch_location(*a))
+    return _clean_location(fetch(session.openf1_session_key, driver.number, start.isoformat(), end.isoformat()))
+
+
+def _elapsed_along(polyline: list[dict], poly_dist: list[float], raw: list[dict]) -> tuple[list[float], list[float]]:
+    """A lap's elapsed time as a function of distance along the event's outline polyline."""
+    times = [parse_iso_utc(p["date"]) for p in raw]
+    _, elapsed = lap_geometry(raw, times)
+    pairs = sorted(_project_onto_reference(polyline, raw, poly_dist, elapsed))
+    return [p[0] for p in pairs], [p[1] for p in pairs]
+
+
+def corner_zones(turns: list[dict], total_m: float) -> list[tuple[float, float]]:
+    """Contiguous zones, one per corner, covering the whole lap: each runs from midway after the
+    previous apex to midway before the next (the first starts at the line, the last ends there)."""
+    apexes = [t["distance_m"] for t in turns]
+    bounds = [0.0] + [(a + b) / 2 for a, b in zip(apexes, apexes[1:])] + [total_m]
+    return list(zip(bounds, bounds[1:]))
+
+
 def compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int) -> dict:
+    """Where on the lap a driver's best lap gained or lost time against the session's best lap.
+
+    Each corner owns a contiguous slice of track (its braking zone, apex and exit to halfway down
+    the next straight), so the corner figures add up to the whole-lap telemetry delta. The official
+    timing delta (lap time minus the reference lap time) differs from the telemetry one by a little
+    sampling noise; that difference is reported as `unattributed_ms` rather than hidden, so
+    corners + unattributed = total, always.
+    """
+    import json
+
     session = db.get(Session, session_id)
     if session is None:
         raise ValueError(f"session {session_id} not found")
@@ -101,95 +144,79 @@ def compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int) -> dict
     outline = db.get(TrackOutline, event.id)
     if outline is None or not outline.ref_distance_m_json or not outline.turns_json or outline.turns_json == "[]":
         raise ValueError("no turn geometry available for this event yet - generate the track outline first")
-    import json
-
     turns = json.loads(outline.turns_json)
     if not turns:
         raise ValueError("no corners were detected on the reference lap for this circuit")
-    ref_dist = json.loads(outline.ref_distance_m_json)
-    ref_elapsed = json.loads(outline.ref_elapsed_ms_json)
-    ref_session = db.get(Session, outline.source_session_id)
-    ref_driver = db.get(Driver, outline.source_driver_id)
+    poly_dist = json.loads(outline.ref_distance_m_json)
+    total_distance = poly_dist[-1]
 
     lap = _pick_driver_lap(db, session, driver_id)
     if lap is None:
         raise ValueError("no clean lap with full sector times for this driver in this session")
+    ref_lap = db.scalar(
+        select(Lap)
+        .where(Lap.session_id == session_id, Lap.lap_time_ms.is_not(None), Lap.is_pit_lap.is_(False), Lap.lap_start_time.is_not(None),
+               Lap.sector_1_ms.is_not(None), Lap.sector_2_ms.is_not(None), Lap.sector_3_ms.is_not(None))
+        .order_by(Lap.lap_time_ms)
+        .limit(1)
+    )
     driver = db.get(Driver, driver_id)
+    ref_driver = db.get(Driver, ref_lap.driver_id)
+    is_reference_lap = ref_lap.driver_id == driver_id and ref_lap.lap_number == lap.lap_number
 
-    is_reference_lap = session.id == ref_session.id and driver_id == outline.source_driver_id and lap.lap_number == outline.source_lap_number
-
-    total_distance = ref_dist[-1]
-    total_delta = 0.0
-
-    if is_reference_lap:
-        def window_delta(_center: float) -> float:
-            return 0.0
-    else:
-        start = lap.lap_start_time
-        end = start + timedelta(milliseconds=lap.lap_time_ms + 300)
-        raw = openf1.fetch_location(session.openf1_session_key, driver.number, start.isoformat(), end.isoformat())
-        raw = [p for p in raw if p.get("x") is not None and p.get("y") is not None and p.get("date")]
-        raw = [p for p in raw if not (p["x"] == 0 and p["y"] == 0)]
-        if len(raw) < 20:
-            raise ValueError("too little telemetry for this driver's lap to compute turn deltas")
-        raw.sort(key=lambda p: p["date"])
-        raw = openf1.location_to_meters(raw)
-        times = [parse_iso_utc(p["date"]) for p in raw]
-
-        ref_lap_row = db.scalar(select(Lap).where(Lap.session_id == outline.source_session_id, Lap.driver_id == outline.source_driver_id, Lap.lap_number == outline.source_lap_number))
-        if ref_lap_row is None:
-            raise ValueError("reference lap no longer available")
-        ref_start = ref_lap_row.lap_start_time
-        ref_end = ref_start + timedelta(milliseconds=ref_lap_row.lap_time_ms + 300)
-        ref_raw = _fetch_reference_location(ref_session.openf1_session_key, ref_driver.number, ref_start.isoformat(), ref_end.isoformat())
-        ref_raw = [p for p in ref_raw if p.get("x") is not None and p.get("y") is not None and p.get("date")]
-        ref_raw = [p for p in ref_raw if not (p["x"] == 0 and p["y"] == 0)]
-        ref_raw.sort(key=lambda p: p["date"])
-        ref_raw = openf1.location_to_meters(ref_raw)
-
-        _, drv_elapsed = lap_geometry(raw, times)
-        # sequential matching keeps this already close to distance-ascending; sort defends
-        # against the odd small jitter so interpolation (which assumes ascending x) stays correct
-        pairs = sorted(_project_onto_reference(ref_raw, raw, ref_dist, drv_elapsed))
-        drv_dist_sorted = [p[0] for p in pairs]
-        drv_elapsed_sorted = [p[1] for p in pairs]
-
-        def window_delta(center: float) -> float:
-            lo, hi = max(0.0, center - WINDOW_M), min(total_distance, center + WINDOW_M)
-            drv_dt = _interp(drv_dist_sorted, drv_elapsed_sorted, hi) - _interp(drv_dist_sorted, drv_elapsed_sorted, lo)
-            ref_dt = _interp(ref_dist, ref_elapsed, hi) - _interp(ref_dist, ref_elapsed, lo)
-            return drv_dt - ref_dt
-
-        total_delta = round(
-            (_interp(drv_dist_sorted, drv_elapsed_sorted, total_distance) - _interp(drv_dist_sorted, drv_elapsed_sorted, 0.0))
-            - (ref_elapsed[-1] - ref_elapsed[0]),
-            1,
-        )
-
-    s1_dist = ref_dist[min(outline.sector_1_end_index, len(ref_dist) - 1)]
-    s2_dist = ref_dist[min(outline.sector_2_end_index, len(ref_dist) - 1)]
+    s1_dist = poly_dist[min(outline.sector_1_end_index, len(poly_dist) - 1)]
+    s2_dist = poly_dist[min(outline.sector_2_end_index, len(poly_dist) - 1)]
 
     def sector_for(distance_m: float) -> int:
-        if distance_m <= s1_dist:
-            return 1
-        if distance_m <= s2_dist:
-            return 2
-        return 3
+        return 1 if distance_m <= s1_dist else 2 if distance_m <= s2_dist else 3
+
+    zones = corner_zones(turns, total_distance)
+    timing_delta = lap.lap_time_ms - ref_lap.lap_time_ms
+    if is_reference_lap:
+        zone_deltas = [0.0 for _ in zones]
+    else:
+        # the outline's own lap gives the polyline both laps are projected onto
+        src_session = db.get(Session, outline.source_session_id)
+        src_lap = db.scalar(select(Lap).where(Lap.session_id == outline.source_session_id, Lap.driver_id == outline.source_driver_id, Lap.lap_number == outline.source_lap_number))
+        if src_lap is None:
+            raise ValueError("the outline's source lap is no longer available")
+        polyline = _lap_location(src_session, db.get(Driver, outline.source_driver_id), src_lap, cached=True)
+        ref_raw = _lap_location(session, ref_driver, ref_lap, cached=True)
+        drv_raw = _lap_location(session, driver, lap)
+        if len(drv_raw) < 20 or len(ref_raw) < 20 or len(polyline) < 20:
+            raise ValueError("too little telemetry for this lap to compute turn deltas")
+        if len(polyline) != len(poly_dist):
+            raise ValueError("outline geometry and its source telemetry disagree - regenerate the outline")
+        d_x, d_y = _elapsed_along(polyline, poly_dist, drv_raw)
+        r_x, r_y = _elapsed_along(polyline, poly_dist, ref_raw)
+
+        def at(xs, ys, d):
+            return _interp(xs, ys, d)
+
+        zone_deltas = [
+            (at(d_x, d_y, hi) - at(d_x, d_y, lo)) - (at(r_x, r_y, hi) - at(r_x, r_y, lo))
+            for lo, hi in zones
+        ]
 
     out_turns = []
-    for t in turns:
-        d = round(window_delta(t["distance_m"]), 1)
-        out_turns.append({"number": t["number"], "sector": sector_for(t["distance_m"]), "distance_m": t["distance_m"], "apex_speed_kph": t["apex_speed_kph"], "delta_ms": d})
-
+    for t, (lo, hi), d in zip(turns, zones, zone_deltas):
+        out_turns.append({
+            "number": t["number"], "sector": sector_for(t["distance_m"]), "distance_m": t["distance_m"],
+            "from_m": round(lo, 1), "to_m": round(hi, 1), "apex_speed_kph": t["apex_speed_kph"], "delta_ms": round(d, 1),
+        })
+    corners_total = sum(t["delta_ms"] for t in out_turns)
     return {
+        "version": TURN_DELTA_VERSION,
         "session_id": session_id,
         "driver_id": driver_id,
         "lap_number": lap.lap_number,
+        "lap_time_ms": lap.lap_time_ms,
         "is_reference_lap": is_reference_lap,
-        "reference": {"session_id": outline.source_session_id, "driver_id": outline.source_driver_id, "lap_number": outline.source_lap_number},
+        "reference": {"session_id": session_id, "driver_id": ref_lap.driver_id, "lap_number": ref_lap.lap_number, "lap_time_ms": ref_lap.lap_time_ms},
         "turns": out_turns,
-        "total_lap_delta_ms": total_delta,
-        "note": "Delta per turn is the time gained/lost in the ~120m window around that corner's apex, vs the event's reference lap. Corners are detected from a speed trace, not an official list; small telemetry-sampling noise is expected.",
+        "total_lap_delta_ms": timing_delta,
+        "unattributed_ms": round(timing_delta - corners_total, 1) if not is_reference_lap else 0.0,
+        "note": "Each corner covers the track from halfway after the previous corner to halfway before the next, so the corners add up to the lap. The remainder is telemetry sampling noise between the timing loops.",
     }
 
 
@@ -200,8 +227,11 @@ def get_or_compute_turn_deltas(db: OrmSession, session_id: int, driver_id: int, 
     cached = db.get(TurnDeltaCache, (session_id, driver_id))
     if cached is not None and not force:
         if cached.payload_json:
-            return json.loads(cached.payload_json)
-        raise ValueError(cached.error or "turn deltas unavailable")
+            payload = json.loads(cached.payload_json)
+            if payload.get("version") == TURN_DELTA_VERSION:
+                return payload
+        else:
+            raise ValueError(cached.error or "turn deltas unavailable")
     if cached is None:
         cached = TurnDeltaCache(session_id=session_id, driver_id=driver_id, computed_at=utcnow())
         db.add(cached)

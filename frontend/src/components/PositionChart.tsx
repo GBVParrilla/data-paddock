@@ -1,32 +1,45 @@
 import { useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { ChartAnnotation, Driver, PitStopRow, PositionByLap, StintRow } from '../api/client'
+import type { ChartAnnotation, Driver, HeadlineRace, PitStopRow, PositionByLap, StintRow } from '../api/client'
 import { tyre } from '../lib/f1'
 import { slotColors, teamColor } from '../lib/teamColors'
 
 const Y_W = 34
 const R_PAD = 44
+// Under a red flag the field queues in the pit lane; OpenF1 logs that as a "stop" of many minutes.
+const SUSPENSION_LANE_MS = 120_000
 
-/** Safety car / VSC / red flag periods from race-control moments, as lap ranges. */
+/** Safety car / VSC / red flag periods from the key moments, as lap ranges. */
 function neutralisations(anns: ChartAnnotation[]): { from: number; to: number; label: string }[] {
   return anns
-    .filter((a) => a.moment_type === 'safety_car' && a.lap_number !== null)
+    .filter((a) => (a.moment_type === 'safety_car' || a.moment_type === 'vsc' || a.moment_type === 'red_flag') && a.lap_number !== null)
     .map((a) => {
-      const end = a.description.match(/ended lap (\d+)/i)
       const from = a.lap_number!
-      const to = end ? Number(end[1]) : from
-      const label = a.label === 'Safety car' ? 'SC' : a.label === 'Red flag' ? 'Red flag' : a.label
-      return { from, to: Math.max(to, from + 0.6), label }
+      const to = a.end_lap ?? from
+      return { from, to: Math.max(to, from + 0.6), label: a.label }
     })
+}
+
+/** The second car of each team (in finishing order) is drawn dashed, so teammates never share a look. */
+function dashedIds(race: HeadlineRace[], drivers: Record<string, Driver>): Set<number> {
+  const seen = new Set<string>()
+  const out = new Set<number>()
+  for (const r of race) {
+    const team = drivers[String(r.driver_id)]?.team ?? ''
+    if (seen.has(team)) out.add(r.driver_id)
+    seen.add(team)
+  }
+  return out
 }
 
 /**
  * Lap-by-lap running order. With no driver selected every car is drawn in its team colour;
  * selecting drivers brings them forward (others fade) and adds their pit stops and tyre stints.
  */
-export function PositionChart({ rows, drivers, selected, annotations, pitStops, stints, onSelect }: {
+export function PositionChart({ rows, drivers, race, selected, annotations, pitStops: allStops, stints, onSelect }: {
   rows: PositionByLap[]
   drivers: Record<string, Driver>
+  race: HeadlineRace[]
   selected: number[]
   annotations: ChartAnnotation[]
   pitStops: PitStopRow[]
@@ -34,6 +47,9 @@ export function PositionChart({ rows, drivers, selected, annotations, pitStops, 
   onSelect: (id: number) => void
 }) {
   const [hover, setHover] = useState<number | null>(null)
+  const pitStops = useMemo(() => allStops.filter((p) => !(p.lane_duration_ms && p.lane_duration_ms >= SUSPENSION_LANE_MS)), [allStops])
+  const dashed = useMemo(() => dashedIds(race, drivers), [race, drivers])
+  const gridSize = Math.max(race.length, 1)
   const { data, ids, maxLap, maxPos, last } = useMemo(() => {
     const byLap = new Map<number, Record<string, number>>()
     const lastPos = new Map<number, { lap: number; pos: number }>()
@@ -72,7 +88,7 @@ export function PositionChart({ rows, drivers, selected, annotations, pitStops, 
                 label={{ value: s.label, position: 'insideTop', fill: 'var(--text-3)', fontSize: 10, dy: -14 }} />
             ))}
             <XAxis dataKey="lap" type="number" domain={[1, maxLap]} tickCount={Math.min(12, maxLap)} allowDecimals={false} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} />
-            <YAxis reversed domain={[1, maxPos]} ticks={[1, 5, 10, 15, 20].filter((t) => t <= maxPos)} width={Y_W} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} axisLine={false} tickFormatter={(v) => `P${v}`} />
+            <YAxis reversed domain={[1, Math.max(maxPos, gridSize)]} ticks={[1, 5, 10, 15, 20, Math.max(maxPos, gridSize)].filter((t, i, a) => t <= Math.max(maxPos, gridSize) && a.indexOf(t) === i)} width={Y_W} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} axisLine={false} tickFormatter={(v) => `P${v}`} />
             <Tooltip
               cursor={{ stroke: 'var(--line-2)' }}
               isAnimationActive={false}
@@ -109,6 +125,7 @@ export function PositionChart({ rows, drivers, selected, annotations, pitStops, 
                   stroke={dim ? 'var(--line-2)' : colorOf(id)}
                   strokeOpacity={dim ? 0.7 : on ? 1 : 0.75}
                   strokeWidth={on ? 2.5 : 1.25}
+                  strokeDasharray={dashed.has(id) ? (on ? '6 3' : '4 3') : undefined}
                   isAnimationActive={false}
                   connectNulls
                   activeDot={false}

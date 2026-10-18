@@ -23,6 +23,11 @@ OPENF1_MIN_INTERVAL_S = 0.55
 HTTP_MAX_RETRIES = 6
 HTTP_TIMEOUT_S = 60
 
+# --- Derived data ----------------------------------------------------------------
+# Bump when transforms / entries / moments change meaning: the next pipeline run re-syncs entry
+# lists, refetches results that predate positionText, and recomputes every derived table.
+DATA_VERSION = "2"
+
 # --- Narrative generation ----------------------------------------------------
 # One-line change to move models later.
 # Haiku 5.5 at low effort: the facts are pre-computed, so the model only has to write them up.
@@ -35,7 +40,7 @@ NARRATIVE_EFFORT = os.environ.get("F1_NARRATIVE_EFFORT") or "low"
 FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
 NARRATIVE_MAX_TOKENS = 16000  # thinking counts toward it; ~1k is typical, but a few stories need much more
 # Bump when prompts change so cached narratives regenerate.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"  # 2: fact sheets, structured stories, fact-checked
 
 # --- Story pipeline + human edits ----------------------------------------------
 # Stories are written by the pipeline right after a session is processed, stored in the DB,

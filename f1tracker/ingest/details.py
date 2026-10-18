@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
 
 from ..clients import openf1
@@ -43,6 +43,30 @@ def compound_for_lap(stints_for_driver: list[dict[str, Any]], lap_number: int) -
             age0 = s.get("tyre_age_at_start") or 0
             return s.get("compound"), age0 + (lap_number - start) + 1
     return None, None
+
+
+def align_pit_laps(pits: list[dict[str, Any]], laps: list[dict[str, Any]]) -> dict[tuple[int, int], int]:
+    """(driver_number, OpenF1 pit lap_number) -> in-lap (the lap the car pitted at the end of).
+
+    OpenF1's pit lap_number is the out-lap at some events and the in-lap at others, so it can't be
+    trusted alone. Its laps carry a reliable is_pit_out_lap flag: the in-lap is the lap before the
+    first out-lap at or after the pit record. No out-lap after it (retired in the pits): the record
+    itself is the in-lap.
+    """
+    out_laps: dict[int, list[int]] = {}
+    for lp in laps:
+        if lp.get("is_pit_out_lap") and lp.get("lap_number") is not None:
+            out_laps.setdefault(int(lp["driver_number"]), []).append(int(lp["lap_number"]))
+    for v in out_laps.values():
+        v.sort()
+    aligned = {}
+    for p in pits:
+        if p.get("lap_number") is None:
+            continue
+        num, lap = int(p["driver_number"]), int(p["lap_number"])
+        nxt = next((l for l in out_laps.get(num, []) if lap <= l <= lap + 2), None)
+        aligned[(num, lap)] = max(1, nxt - 1) if nxt is not None else max(1, lap)
+    return aligned
 
 
 def build_position_lookup(positions: list[dict[str, Any]]) -> dict[int, tuple[list[datetime], list[int]]]:
@@ -80,8 +104,7 @@ def parse_laps(
     """OpenF1 laps -> row dicts keyed by driver_number (driver_id filled in by caller)."""
     stint_lookup = build_stint_lookup(stints)
     pos_lookup = build_position_lookup(positions) if race_like else {}
-    # OpenF1 reports the pit stop on the OUT-lap; the in-lap (where time is lost) is lap_number - 1.
-    pit_in_laps = {(int(p["driver_number"]), int(p["lap_number"]) - 1) for p in pits if p.get("lap_number") is not None}
+    pit_in_laps = {(num, in_lap) for (num, _), in_lap in align_pit_laps(pits, laps).items()}
 
     # next-lap start per driver, to know when each lap ended
     by_driver: dict[int, list[dict[str, Any]]] = {}
@@ -117,6 +140,7 @@ def parse_laps(
                     compound=compound,
                     tyre_life=tyre_life,
                     is_pit_lap=bool(lp.get("is_pit_out_lap")) or (num, lap_no) in pit_in_laps,
+                    is_pit_out_lap=bool(lp.get("is_pit_out_lap")),
                     position=position,
                     lap_start_time=start,
                 )
@@ -201,12 +225,13 @@ def ingest_session_details(db: OrmSession, session_id: int) -> bool:
     ]
     upsert(db, Stint, stint_rows, ["session_id", "driver_id", "stint_number"])
 
+    in_laps = align_pit_laps(pits, laps)
     pit_rows = [
         dict(
             session_id=session_id,
             driver_id=driver_ids.get(int(p["driver_number"])) or driver_id_for(int(p["driver_number"])),
-            # stored as the IN-lap ("pitted at the end of lap N"); OpenF1 gives the out-lap
-            lap_number=max(1, int(p["lap_number"]) - 1),
+            # stored as the IN-lap ("pitted at the end of lap N")
+            lap_number=in_laps[(int(p["driver_number"]), int(p["lap_number"]))],
             duration_ms=openf1.seconds_to_ms(p.get("stop_duration")),
             lane_duration_ms=openf1.seconds_to_ms(p.get("pit_duration") or p.get("lane_duration")),
         )
@@ -256,3 +281,36 @@ def ingest_session_details(db: OrmSession, session_id: int) -> bool:
         session_id, session.session_type, len(lap_rows), len(stint_rows), len(pit_rows), len(weather_rows), len(rc_rows),
     )
     return True
+
+
+def repair_pit_laps(db: OrmSession, session_id: int) -> int:
+    """Re-derive pit in-laps and pit-lap flags for a session ingested before align_pit_laps existed.
+
+    Fetches only OpenF1 /laps and /pit (not positions or telemetry). Returns stops changed.
+    """
+    session = db.get(Session, session_id)
+    year = db.get(Season, db.get(Event, session.event_id).season_id).year
+    if not session.openf1_session_key:
+        return 0
+    laps = openf1.fetch_laps(session.openf1_session_key)
+    pits = openf1.fetch_pit_stops(session.openf1_session_key)
+    if not laps:
+        return 0
+    in_laps = align_pit_laps(pits, laps)
+    ids = {num: resolve_driver_by_number(db, year, num).id for num in {int(lp["driver_number"]) for lp in laps} | {int(p["driver_number"]) for p in pits}}
+    out_flags = {(ids[int(lp["driver_number"])], int(lp["lap_number"])): bool(lp.get("is_pit_out_lap")) for lp in laps}
+    pit_in = {(ids[num], in_lap) for (num, _), in_lap in in_laps.items()}
+    for lap in db.scalars(select(Lap).where(Lap.session_id == session_id)).all():
+        key = (lap.driver_id, lap.lap_number)
+        lap.is_pit_out_lap = out_flags.get(key, False)
+        lap.is_pit_lap = lap.is_pit_out_lap or key in pit_in
+    rows = [
+        dict(session_id=session_id, driver_id=ids[int(p["driver_number"])], lap_number=in_laps[(int(p["driver_number"]), int(p["lap_number"]))],
+             duration_ms=openf1.seconds_to_ms(p.get("stop_duration")), lane_duration_ms=openf1.seconds_to_ms(p.get("pit_duration") or p.get("lane_duration")))
+        for p in pits if p.get("lap_number") is not None
+    ]
+    rows = list({(r["driver_id"], r["lap_number"]): r for r in rows}.values())
+    before = {(p.driver_id, p.lap_number) for p in db.scalars(select(PitStop).where(PitStop.session_id == session_id)).all()}
+    db.execute(delete(PitStop).where(PitStop.session_id == session_id))
+    upsert(db, PitStop, rows, ["session_id", "driver_id", "lap_number"])
+    return len({(r["driver_id"], r["lap_number"]) for r in rows} ^ before)

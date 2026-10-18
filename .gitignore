@@ -23,3 +23,7 @@ data/*.db-shm
 data/*.db-wal
 data/*.gz
 .DS_Store
+tests/invariants/.cache/
+frontend/e2e-results/
+frontend/test-results/
+frontend/playwright-report/

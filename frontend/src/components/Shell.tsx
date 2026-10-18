@@ -24,10 +24,10 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="wrap h-14 flex items-center gap-4 sm:gap-8">
           <Brand />
           <nav className="flex items-center gap-3.5 sm:gap-6" aria-label="Main">
-            <NavLink to="/" end className={link}>Races</NavLink>
+            <NavLink to="/races" className={link}>Races</NavLink>
             <NavLink to={`/season/${year ?? ''}`} className={link}>Standings</NavLink>
           </nav>
-          <div className="ml-auto">
+          <div className={`ml-auto ${(seasons.data?.length ?? 0) <= 1 ? 'hidden' : ''}`}>
             <label className="sr-only" htmlFor="season">Season</label>
             <select
               id="season"
@@ -41,7 +41,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="flex-1">{children}</main>
+      {/* a full screen of room up front keeps the footer from jumping as data arrives (layout shift) */}
+      <main className="flex-1 min-h-[calc(100vh-3.5rem)]">{children}</main>
       <footer className="border-t mt-16" style={{ borderColor: 'var(--line)' }}>
         <div className="wrap py-6 flex flex-wrap gap-x-6 gap-y-2 justify-between text-[12px] t3">
           <span>Timing data from OpenF1 and Jolpica. Circuit maps in F1's orientation via MultiViewer. Stories written by Claude from that data.</span>

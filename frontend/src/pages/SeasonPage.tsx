@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { api, type StandingRow } from '../api/client'
 import { StoryMeta } from '../components/StoryMeta'
 import { useFetch } from '../hooks/useFetch'
+import { STATUS_TEXT } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
 import { useStore } from '../state/store'
 
@@ -106,7 +107,7 @@ function Story({ year, type, id, title, color }: { year: number; type: 'driver' 
         {arc.data && (
           <>
             <p className="prose whitespace-pre-line max-w-3xl">{arc.data.arc_text}</p>
-            <div className="mt-5"><StoryMeta info={arc.data} route={`/season/${year}?type=${type}&id=${encodeURIComponent(id)}`} story={{ title: `${year} season · ${title}`, text: arc.data.arc_text, generatedAt: arc.data.generated_at }} /></div>
+            <div className="mt-5"><StoryMeta info={arc.data} route={`/season/${year}?type=${type}&id=${encodeURIComponent(id)}`} story={{ title: `${year} season · ${title}`, text: arc.data.arc_text, generatedAt: arc.data.generated_at ?? "" }} /></div>
           </>
         )}
       </div>
@@ -175,19 +176,23 @@ export function SeasonPage() {
                       <div className="flex items-center gap-2.5">
                         <span className="swatch h-4" style={{ background: teamColor(d.team) }} />
                         <span className="font-medium">{d.name}</span>
-                        <span className="t3 hidden md:inline">{d.team}</span>
+                        <span className="t3 hidden md:inline">{d.team}{d.teams.length > 1 && <span title={`Also drove for ${d.teams.filter((t) => t !== d.team).join(', ')} this season`}> · also {d.teams.filter((t) => t !== d.team).join(', ')}</span>}</span>
                       </div>
                     </td>
                     <td className="r num font-semibold">{fmtPts(d.points)}</td>
                     <td className="r num t2">{d.wins || ''}</td>
                     <td className="r num t2">{d.podiums || ''}</td>
                     {rounds.map((r) => {
-                      const p = d.results[String(r)]
+                      const res = d.results[String(r)]
+                      const p = res?.position ?? null
+                      const code = res && !p ? res.status : null
+                      const elsewhere = res?.team && res.team !== d.team
+                      const what = !res ? 'did not take part' : p ? `P${p}${code === 'DNF' ? ' (retired, classified)' : ''}` : res.status ? STATUS_TEXT[res.status] : 'no result'
                       return (
                         <td key={r} className="!px-0.5">
-                          <div className="h-6 w-7 mx-auto rounded-[4px] flex items-center justify-center text-[11px] num" title={`${nameOf(r)}: ${p ? `P${p}` : 'DNF / no result'}`}
-                            style={cell(p)}>
-                            {p ?? '·'}
+                          <div className="h-6 w-7 mx-auto rounded-[4px] flex items-center justify-center num" title={`${nameOf(r)}: ${what}${elsewhere ? ` · for ${res!.team}` : ''}`}
+                            style={{ ...cell(p), fontSize: code ? 8.5 : 11, letterSpacing: code ? '-0.02em' : undefined, boxShadow: elsewhere ? `inset 0 -2px 0 ${teamColor(res!.team)}` : undefined }}>
+                            {p ?? code ?? '·'}
                           </div>
                         </td>
                       )

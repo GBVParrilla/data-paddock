@@ -18,6 +18,7 @@ from ..analysis.midfield import identify_midfield_story
 from ..analysis.track import build_track_outline, outline_to_dict
 from ..analysis.turns import get_or_compute_turn_deltas
 from ..db import get_sessionmaker, init_db
+from ..ingest.entries import entry_map, event_drivers
 from ..models import (
     PRACTICE_LIKE,
     QUALI_LIKE,
@@ -35,19 +36,23 @@ from ..models import (
     HeadlineRace,
     HeadlineSessionSummary,
     ComparisonNarrative,
+    Entry,
     Lap,
     PitStop,
     PivotalMoment,
+    RaceControl,
+    Result,
     Season,
     Session,
     SessionIngestionState,
 )
 from ..narratives.compare import build_comparison, plan_comparison_narrative
 from ..narratives.driver_session import plan_driver_session_narrative
-from ..narratives.edits import present_comparison, present_driver_session, present_season_arc, present_weekend_arc, sync_if_changed
+from ..narratives.edits import present_comparison, present_driver_session, present_season_arc, present_weekend_arc, sync_if_changed, template_driver_session
 from ..narratives.llm import NarrativeGenerationError
 from ..narratives.season_arc import plan_season_arc
 from ..narratives.weekend_arc import plan_weekend_arc
+from ..transforms.headline import race_counts
 
 app = FastAPI(title="F1 Data + Storytelling Tracker", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
@@ -149,11 +154,11 @@ def season_events(year: int, db: OrmSession = Depends(get_db)) -> list[dict]:
     if season is None:
         raise HTTPException(404, f"season {year} not found")
     events = db.scalars(select(Event).where(Event.season_id == season.id).order_by(Event.round)).all()
-    drivers = _driver_map(db)
     out = []
     for e in events:
         race = db.scalar(select(Session).where(Session.event_id == e.id, Session.session_type == "R"))
         top = db.scalars(select(HeadlineRace).where(HeadlineRace.session_id == race.id, HeadlineRace.finish_position.in_([1, 2, 3])).order_by(HeadlineRace.finish_position)).all() if race else []
+        drivers = event_drivers(db, e.id, {r.driver_id for r in top})
         podium = [drivers.get(r.driver_id) for r in top]
         out.append({**_row(e), "season_year": season.year, "winner": podium[0] if podium else None, "podium": podium, "completed": bool(podium)})
     return out
@@ -167,34 +172,43 @@ def season_standings(year: int, db: OrmSession = Depends(get_db)) -> dict:
         raise HTTPException(404, f"season {year} not found")
     drivers = _driver_map(db)
     q = (
-        select(HeadlineRace, Session.session_type, Event.round)
+        select(HeadlineRace, Session.session_type, Event.round, Event.id)
         .join(Session, Session.id == HeadlineRace.session_id)
         .join(Event, Event.id == Session.event_id)
         .where(Event.season_id == season.id)
+        .order_by(Event.round)
     )
+    entries: dict[int, dict[int, Entry]] = {}
     table: dict[int, dict] = {}
-    teams: dict[str, float] = {}
+    teams: dict[str, dict] = {}  # constructor key -> {team, constructor_id, points}
     rounds: set[int] = set()
-    for hr, stype, rnd in db.execute(q).all():
+    for hr, stype, rnd, eid in db.execute(q).all():
         d = drivers.get(hr.driver_id)
         if d is None:
             continue
+        entry = entries.setdefault(eid, entry_map(db, eid)).get(hr.driver_id)
+        team = entry.team if entry else d["team"]
         rounds.add(rnd)
-        row = table.setdefault(hr.driver_id, {"driver_id": hr.driver_id, "name": d["name"], "code": d["code"], "team": d["team"], "points": 0.0, "wins": 0, "podiums": 0, "results": {}, "round_points": {}})
+        row = table.setdefault(hr.driver_id, {"driver_id": hr.driver_id, "name": d["name"], "code": d["code"], "team": team, "teams": [], "points": 0.0, "wins": 0, "podiums": 0, "results": {}, "round_points": {}})
+        row["team"] = team  # latest round wins
+        if team not in row["teams"]:
+            row["teams"].append(team)
         row["points"] += hr.points or 0
         row["round_points"][rnd] = row["round_points"].get(rnd, 0) + (hr.points or 0)
-        if d["team"]:
-            teams[d["team"]] = teams.get(d["team"], 0) + (hr.points or 0)
+        key = (entry.constructor_id if entry and entry.constructor_id else team) or "unknown"
+        t = teams.setdefault(key, {"team": team, "constructor_id": entry.constructor_id if entry else None, "points": 0.0})
+        t["team"] = team  # latest display name
+        t["points"] += hr.points or 0
         if stype == "R":
-            row["results"][rnd] = hr.finish_position
+            row["results"][rnd] = {"position": hr.finish_position, "status": hr.status_code, "team": team}
             if hr.finish_position == 1:
                 row["wins"] += 1
             if hr.finish_position and hr.finish_position <= 3:
                 row["podiums"] += 1
-    drivers_out = sorted(table.values(), key=lambda r: (-r["points"], -r["wins"]))
+    drivers_out = sorted(table.values(), key=lambda r: (-r["points"], -r["wins"], -r["podiums"]))
     for i, r in enumerate(drivers_out):
         r["position"] = i + 1
-    teams_out = [{"team": t, "points": p, "position": i + 1} for i, (t, p) in enumerate(sorted(teams.items(), key=lambda kv: -kv[1]))]
+    teams_out = [{**t, "position": i + 1} for i, t in enumerate(sorted(teams.values(), key=lambda t: -t["points"]))]
     return {"year": season.year, "rounds": sorted(rounds), "drivers": drivers_out, "teams": teams_out}
 
 
@@ -222,16 +236,29 @@ def event_sessions(event_id: int, db: OrmSession = Depends(get_db)) -> list[dict
 
 @app.get("/sessions/{session_id}/headline")
 def session_headline(session_id: int, db: OrmSession = Depends(get_db)) -> dict:
+    """The session's classification, with driver cards for this session's entrants only
+    (team and car number as entered for this event)."""
     s = _session_or_404(db, session_id)
-    drivers = _driver_map(db)
     summary = db.get(HeadlineSessionSummary, session_id)
-    out: dict[str, Any] = {"session": _row(s), "summary": summary.summary_text if summary else None, "drivers": drivers}
+    out: dict[str, Any] = {"session": _row(s), "summary": summary.summary_text if summary else None}
     if s.session_type in PRACTICE_LIKE:
-        out["practice"] = [_row(r) for r in db.scalars(select(HeadlinePractice).where(HeadlinePractice.session_id == session_id).order_by(HeadlinePractice.rank)).all()]
+        rows = [_row(r) for r in db.scalars(select(HeadlinePractice).where(HeadlinePractice.session_id == session_id).order_by(HeadlinePractice.rank)).all()]
+        out["practice"] = rows
     elif s.session_type in QUALI_LIKE:
-        out["qualifying"] = [_row(r) for r in db.scalars(select(HeadlineQualifying).where(HeadlineQualifying.session_id == session_id).order_by(HeadlineQualifying.position)).all()]
+        rows = db.scalars(select(HeadlineQualifying).where(HeadlineQualifying.session_id == session_id)).all()
+        rows = [_row(r) for r in sorted(rows, key=lambda r: (r.position is None, r.position or 0))]
+        out["qualifying"] = rows
     elif s.session_type in RACE_LIKE:
-        out["race"] = [_row(r) for r in db.scalars(select(HeadlineRace).where(HeadlineRace.session_id == session_id).order_by(HeadlineRace.finish_position)).all()]
+        rows = db.scalars(select(HeadlineRace).where(HeadlineRace.session_id == session_id)).all()
+        rows = [_row(r) for r in sorted(rows, key=lambda r: r.classification_order or 999)]
+        gaps = {r.driver_id: r.gap_to_leader_ms for r in db.scalars(select(Result).where(Result.session_id == session_id)).all()}
+        for r in rows:  # a time gap only on the lead lap; lapped cars show laps down instead
+            r["gap_to_winner_ms"] = gaps.get(r["driver_id"]) if r["status_code"] == "FIN" else None
+        out["race"] = rows
+        out["counts"] = race_counts(rows)
+    else:
+        rows = []
+    out["drivers"] = {str(k): v for k, v in event_drivers(db, s.event_id, {r["driver_id"] for r in rows}).items()}
     return out
 
 
@@ -271,7 +298,7 @@ def driver_narrative(session_id: int, driver_id: int, force: bool = False, db: O
     _session_or_404(db, session_id)
     _driver_or_404(db, driver_id)
     n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, driver_id, force=force)
-    return present_driver_session(db, n)
+    return present_driver_session(db, n) if n is not None else template_driver_session(db, session_id, driver_id)
 
 
 @app.get("/events/{event_id}/drivers/{driver_id}/weekend-arc")
@@ -298,16 +325,34 @@ def pivotal_moments(session_id: int, db: OrmSession = Depends(get_db)) -> list[d
     return [_row(m) for m in db.scalars(select(PivotalMoment).where(PivotalMoment.session_id == session_id).order_by(PivotalMoment.magnitude_score.desc())).all()]
 
 
+@app.get("/sessions/{session_id}/race-control")
+def race_control(session_id: int, db: OrmSession = Depends(get_db)) -> dict:
+    """The session's incident timeline: neutralisations, red flags, penalties, investigations as
+    cases (noted -> decision), and deleted lap times. Routine sector flags and pit-lane notices are dropped."""
+    s = _session_or_404(db, session_id)
+    from ..analysis.race_control import cases, neutral_periods, parse_messages, tidy
+
+    numbers = {e.car_number: e.driver_id for e in entry_map(db, s.event_id).values() if e.car_number is not None}
+    incidents = parse_messages(db.scalars(select(RaceControl).where(RaceControl.session_id == session_id)).all(), numbers)
+    events = [
+        {"lap_number": i.lap, "time": i.time, "kind": i.kind, "driver_ids": i.driver_ids, "turn": i.turn, "reason": i.reason.lower() if i.reason else None, "outcome": i.outcome, "text": tidy(i.message)}
+        for i in incidents
+    ]
+    return {"periods": [{k: v for k, v in p.items() if k != "time"} for p in neutral_periods(incidents)], "cases": cases(incidents), "events": events}
+
+
 @app.get("/sessions/{session_id}/chart-annotations")
 def chart_annotations(session_id: int, db: OrmSession = Depends(get_db)) -> list[dict]:
-    _session_or_404(db, session_id)
-    drivers = _driver_map(db)
+    """Key moments placed on the lap axis (neutralisations carry their end lap for shading)."""
+    s = _session_or_404(db, session_id)
+    drivers = event_drivers(db, s.event_id)
+    short = {"safety_car": "SC", "vsc": "VSC", "red_flag": "Red flag", "dnf": "out", "dns": "DNS", "penalty": "penalty", "lead_change": "leads", "undercut": "undercut", "overcut": "overcut", "slow_stop": "slow stop", "pit_cycle": "stops", "incident": "incident", "fastest_lap": "fastest lap"}
     out = []
     for m in db.scalars(select(PivotalMoment).where(PivotalMoment.session_id == session_id).order_by(PivotalMoment.lap_number)).all():
         code = drivers.get(m.driver_id, {}).get("code") if m.driver_id else None
-        sc_label = "Red flag" if m.description.startswith("Red flag") else "VSC" if "Virtual" in m.description else "Safety car"
-        label = {"safety_car": sc_label, "pit_stop": f"{code or ''} pit".strip(), "position_swing": f"{code or ''} {'+' if 'gained' in m.description else '-'}".strip(), "penalty": f"{code or ''} penalty".strip(), "fastest_lap": f"{code or ''} fastest lap".strip()}.get(m.moment_type, m.moment_type)
-        out.append({"lap_number": m.lap_number, "driver_id": m.driver_id, "label": label, "moment_type": m.moment_type, "description": m.description, "magnitude_score": m.magnitude_score})
+        kind = short.get(m.moment_type, m.moment_type.replace("_", " "))
+        label = kind if m.moment_type in ("safety_car", "vsc", "red_flag") else f"{code or ''} {kind}".strip()
+        out.append({"lap_number": m.lap_number, "end_lap": m.end_lap, "driver_id": m.driver_id, "label": label, "moment_type": m.moment_type, "description": m.headline or m.description, "magnitude_score": m.magnitude_score})
     return out
 
 
@@ -319,7 +364,7 @@ def midfield_spotlight(session_id: int, generate: bool = True, db: OrmSession = 
         raise HTTPException(404, "no midfield story could be identified for this session")
     if generate:
         n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, story["driver_id"])
-        story["narrative"] = present_driver_session(db, n)
+        story["narrative"] = present_driver_session(db, n) if n is not None else template_driver_session(db, session_id, story["driver_id"])
     return story
 
 

@@ -35,7 +35,7 @@ export function setEditorMode(on: boolean): void {
 /** Link to the page a story is shown on, with the selection that shows it. `route` is e.g. `/race/3?session=5&drivers=1`. */
 export function pageUrl(route: string): string {
   const base = `${window.location.origin}${import.meta.env.BASE_URL}`
-  return import.meta.env.VITE_STATIC === '1' ? `${base}#${route}` : `${base.replace(/\/$/, '')}${route}`
+  return `${base.replace(/\/$/, '')}${route}`
 }
 
 export interface StoryText { title: string; text: string; analysis?: string; generatedAt: string }

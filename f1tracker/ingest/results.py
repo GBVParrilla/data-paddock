@@ -43,6 +43,7 @@ def _rows_from_jolpica_race(db: OrmSession, session: Session, results: list[dict
                 session_id=session.id,
                 driver_id=drv.id,
                 position=_int(r.get("position")),
+                position_text=r.get("positionText"),
                 points=float(r.get("points") or 0),
                 status=r.get("status"),
                 grid_position=grid if grid else None,  # grid "0" = pit-lane start
@@ -67,6 +68,7 @@ def _rows_from_jolpica_quali(db: OrmSession, session: Session, results: list[dic
                 session_id=session.id,
                 driver_id=drv.id,
                 position=_int(r.get("position")),
+                position_text=r.get("position"),
                 points=0.0,
                 status=reached,
                 grid_position=None,
@@ -97,11 +99,13 @@ def _rows_from_openf1(db: OrmSession, session: Session, year: int, results: list
         else:
             gap_ms = openf1.seconds_to_ms(gap) if not isinstance(gap, str) else None
             status = "DNS" if r.get("dns") else "DSQ" if r.get("dsq") else "Retired" if r.get("dnf") else "Finished"
+        pt = "W" if r.get("dns") else "D" if r.get("dsq") else (str(r["position"]) if r.get("position") else "R" if r.get("dnf") else None)
         rows.append(
             dict(
                 session_id=session.id,
                 driver_id=drv.id,
                 position=_int(r.get("position")),
+                position_text=pt,
                 points=float(r.get("points") or 0),
                 status=status,
                 grid_position=None,

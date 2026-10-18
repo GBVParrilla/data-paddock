@@ -1,4 +1,7 @@
 import type { TrackOutline } from '../api/client'
+
+/** A full outline, or the light preview shipped in the event list (points only). */
+export type OutlineLike = Pick<TrackOutline, 'points'> & Partial<Pick<TrackOutline, 'sector_1_end_index' | 'sector_2_end_index' | 'turns'>>
 import { TIER_COLOR, type Tier } from '../lib/f1'
 
 type Pt = [number, number]
@@ -30,7 +33,7 @@ export function TrackMap({
   plainColor = 'var(--text-2)',
   className,
 }: {
-  outline: TrackOutline
+  outline: OutlineLike
   sectors?: [Tier, Tier, Tier]
   turns?: Record<number, Tier>
   showTurns?: boolean
@@ -44,8 +47,8 @@ export function TrackMap({
   const pad = showTurns ? 60 : stroke * 2 + 6
   const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad, minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad
   const c: Pt = [(minX + maxX) / 2, (minY + maxY) / 2]
-  const i1 = Math.min(outline.sector_1_end_index, pts.length - 1)
-  const i2 = Math.min(Math.max(outline.sector_2_end_index, i1 + 1), pts.length - 1)
+  const i1 = Math.min(outline.sector_1_end_index ?? Math.floor(pts.length / 3), pts.length - 1)
+  const i2 = Math.min(Math.max(outline.sector_2_end_index ?? Math.floor((2 * pts.length) / 3), i1 + 1), pts.length - 1)
   const segs: Pt[][] = [pts.slice(0, i1 + 1), pts.slice(i1, i2 + 1), [...pts.slice(i2), pts[0]]]
   const [sx, sy] = pts[0]
   const [snx, sny] = normal(pts, 0)
@@ -72,7 +75,7 @@ export function TrackMap({
       {/* start / finish */}
       <line x1={sx - snx * sf} y1={sy - sny * sf} x2={sx + snx * sf} y2={sy + sny * sf} stroke="var(--text)" strokeWidth={Math.max(3, stroke / 2.5)} />
       {showTurns &&
-        outline.turns.map((t) => {
+        (outline.turns ?? []).map((t) => {
           const i = Math.min(t.index, pts.length - 1)
           const [ox, oy] = outward(pts, i, c)
           const x = pts[i][0] + ox * (stroke + 22), y = pts[i][1] + oy * (stroke + 22)

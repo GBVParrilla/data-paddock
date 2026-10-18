@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { api, fmtMs, type Detail, type Driver, type Headline } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
-import { isRaceLike, tyre, TYRE, turnTier, TIER_COLOR } from '../lib/f1'
+import { isRaceLike, tyre, TYRE, turnTier, TIER_COLOR, UNKNOWN_TYRE } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
+import { Term } from './Glossary'
+import { TierLegend } from './race/CircuitPanel'
+import { IncidentTimeline } from './race/IncidentTimeline'
 
-type Tab = 'tyres' | 'turns' | 'sectors' | 'pace'
+type Tab = 'tyres' | 'turns' | 'sectors' | 'pace' | 'incidents'
 
 function order(h: Headline): number[] {
-  const rows = (h.race ?? []).map((r) => [r.driver_id, r.finish_position ?? 99] as const)
+  const rows = (h.race ?? []).map((r) => [r.driver_id, r.classification_order ?? r.finish_position ?? 99] as const)
     .concat((h.qualifying ?? []).map((r) => [r.driver_id, r.position ?? 99] as const))
     .concat((h.practice ?? []).map((r) => [r.driver_id, r.rank ?? 99] as const))
   return [...rows].sort((x, y) => x[1] - y[1]).map((r) => r[0])
@@ -18,10 +21,14 @@ function TyreStrategy({ detail, headline, selected }: { detail: Detail; headline
   const ids = order(headline).filter((id) => detail.stint_timeline.some((s) => s.driver_id === id))
   return (
     <div>
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-4 mb-4">
+        <span className="label"><Term k="compound">Tyres</Term></span>
         {Object.entries(TYRE).map(([k, t]) => detail.stint_timeline.some((s) => s.compound === k) && (
           <span key={k} className="flex items-center gap-1.5 text-[12px] t2"><span className="dot" style={{ background: t.color }} />{t.label}</span>
         ))}
+        {detail.stint_timeline.some((s) => !s.compound || !TYRE[s.compound]) && (
+          <span className="flex items-center gap-1.5 text-[12px] t2" title="The timing feed didn't report this compound"><span className="dot" style={{ background: UNKNOWN_TYRE.color }} />Unknown (not in the feed)</span>
+        )}
       </div>
       <div className="space-y-[5px]">
         {ids.map((id) => {
@@ -46,33 +53,43 @@ function TyreStrategy({ detail, headline, selected }: { detail: Detail; headline
   )
 }
 
-function TurnByTurn({ sessionId, driver }: { sessionId: number; driver: Driver }) {
+function TurnByTurn({ sessionId, driver, headline }: { sessionId: number; driver: Driver; headline: Headline }) {
   const td = useFetch((s) => api.turnDeltas(sessionId, driver.id, s), [sessionId, driver.id])
   if (td.loading) return <div className="skeleton h-40" />
   if (td.error) return <p className="t2">{td.error.message}</p>
   if (!td.data) return null
-  if (td.data.is_reference_lap) return <p className="t2">This is the reference lap - the one every other driver is measured against.</p>
-  const lim = Math.max(100, ...td.data.turns.map((t) => Math.abs(t.delta_ms)))
+  const t = td.data
+  const ref = headline.drivers[String(t.reference.driver_id)]
+  if (t.is_reference_lap) return <p className="t2">{driver.name}'s lap {t.lap_number} was the fastest of the session: it is the <Term k="reference">reference lap</Term> everyone else is measured against.</p>
+  const rest = t.unattributed_ms ?? 0
+  const lim = Math.max(100, ...t.turns.map((x) => Math.abs(x.delta_ms)), Math.abs(rest))
+  const bar = (key: string, label: string, ms: number, color: string, title?: string) => {
+    const w = (Math.abs(ms) / lim) * 50
+    return (
+      <div key={key} className="grid grid-cols-[3.5rem_1fr_4.5rem] items-center gap-2 h-6">
+        <span className="text-[12px] t2 num">{label}</span>
+        <div className="relative h-full">
+          <div className="absolute top-0 bottom-0 left-1/2 w-px" style={{ background: 'var(--line-2)' }} />
+          <div className="absolute top-[5px] bottom-[5px] rounded-[3px]" title={title} style={{ background: color, left: ms < 0 ? `${50 - w}%` : '50%', width: `${Math.max(w, 0.4)}%` }} />
+        </div>
+        <span className="text-[12px] num text-right">{ms > 0 ? '+' : ''}{(ms / 1000).toFixed(3)}</span>
+      </div>
+    )
+  }
   return (
     <div>
-      <p className="label mb-4">Time gained or lost through each corner on {driver.code}'s best lap, versus the session's reference lap. Total {fmtMs(td.data.total_lap_delta_ms, true)}s.</p>
-      <div className="space-y-1">
-        {td.data.turns.map((t) => {
-          const w = (Math.abs(t.delta_ms) / lim) * 50
-          return (
-            <div key={t.number} className="grid grid-cols-[2.5rem_1fr_4.5rem] items-center gap-2 h-6">
-              <span className="text-[12px] t2 num">T{t.number}</span>
-              <div className="relative h-full">
-                <div className="absolute top-0 bottom-0 left-1/2 w-px" style={{ background: 'var(--line-2)' }} />
-                <div className="absolute top-[5px] bottom-[5px] rounded-[3px]" title={`${t.apex_speed_kph.toFixed(0)} km/h apex`}
-                  style={{ background: TIER_COLOR[turnTier(t.delta_ms)], left: t.delta_ms < 0 ? `${50 - w}%` : '50%', width: `${Math.max(w, 0.4)}%` }} />
-              </div>
-              <span className="text-[12px] num text-right">{t.delta_ms > 0 ? '+' : ''}{(t.delta_ms / 1000).toFixed(3)}</span>
-            </div>
-          )
-        })}
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mb-4">
+        <div><span className="label">{driver.code} best lap</span> <span className="num font-semibold">{fmtMs(t.lap_time_ms ?? null)}</span> <span className="label">lap {t.lap_number}</span></div>
+        <div><span className="label">vs <Term k="reference">reference</Term> ({ref?.code ?? '–'}, lap {t.reference.lap_number})</span> <span className="num font-semibold">{fmtMs(t.reference.lap_time_ms ?? null)}</span></div>
+        <div><span className="label">Total</span> <span className="num font-semibold">{t.total_lap_delta_ms > 0 ? '+' : ''}{(t.total_lap_delta_ms / 1000).toFixed(3)}s</span></div>
       </div>
-      <div className="grid grid-cols-[2.5rem_1fr_4.5rem] gap-2 mt-2 label"><span /><div className="flex justify-between"><span>Gained</span><span>Lost</span></div><span /></div>
+      <div className="space-y-1">
+        {t.turns.map((x) => bar(String(x.number), `T${x.number}`, x.delta_ms, TIER_COLOR[turnTier(x.delta_ms)], `${x.apex_speed_kph.toFixed(0)} km/h apex${x.from_m != null ? ` · ${Math.round(x.from_m)}–${Math.round(x.to_m ?? 0)} m` : ''}`))}
+        {bar('rest', 'Other', rest, 'var(--none)', 'Timing that telemetry sampling can\'t place on a corner')}
+      </div>
+      <div className="grid grid-cols-[3.5rem_1fr_4.5rem] gap-2 mt-2 label"><span /><div className="flex justify-between"><span>Gained</span><span>Lost</span></div><span /></div>
+      <p className="label mt-3">Each corner covers the track from halfway after the previous corner to halfway before the next, so the rows add up to the total. "Other" is what the timing loops measured but the position telemetry can't place.</p>
+      <div className="mt-3"><TierLegend turns /></div>
     </div>
   )
 }
@@ -121,7 +138,7 @@ function LongRunPace({ detail, headline, selected }: { detail: Detail; headline:
     <div>
       <div className="flex items-center gap-3 mb-4">
         <div className="seg sm">{compounds.map((k) => <button key={k} aria-pressed={k === cur} onClick={() => setC(k)}>{tyre(k).label}</button>)}</div>
-        <span className="label">Average lap on runs of 5+ laps</span>
+        <span className="label">Average lap on runs of 5+ laps. Under 8 laps is a small sample; fuel loads aren't known.</span>
       </div>
       <div className="space-y-1">
         {rows.map((r) => {
@@ -133,7 +150,7 @@ function LongRunPace({ detail, headline, selected }: { detail: Detail; headline:
               <span className={`text-[12px] ${on ? 'font-semibold' : 't2'}`}>{d?.code}</span>
               <div className="h-[10px] rounded-[3px]" style={{ width: `${w}%`, background: teamColor(d?.team), opacity: 0.85 }} />
               <span className="text-[12px] num text-right">{fmtMs(r.avg_lap_time_ms)}</span>
-              <span className="text-[12px] num text-right t3">{r.lap_count} laps</span>
+              <span className={`text-[12px] num text-right ${r.lap_count < 8 ? 't3 italic' : 't3'}`} title={r.lap_count < 8 ? 'Small sample' : undefined}>{r.lap_count} laps</span>
             </div>
           )
         })}
@@ -148,6 +165,7 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
     { id: 'pace', label: 'Long-run pace', show: detail.long_run_pace.length > 0 && !isRaceLike(sessionType) },
     { id: 'sectors', label: 'Sectors', show: selected.length > 0 },
     { id: 'turns', label: 'Turn by turn', show: selected.length > 0 },
+    { id: 'incidents', label: 'Race control', show: true },
   ]
   const visible = tabs.filter((t) => t.show)
   const [tab, setTab] = useState<Tab>('tyres')
@@ -158,7 +176,7 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
     <section className="panel" aria-label="Deep dive">
       <div className="px-5 pt-3">
         <div className="flex items-center justify-between gap-4">
-          <div className="tabs" role="tablist">
+          <div className="tabs overflow-x-auto" role="tablist">
             {visible.map((t) => <button key={t.id} role="tab" aria-selected={t.id === cur} onClick={() => setTab(t.id)}>{t.label}</button>)}
           </div>
           {!selected.length && <span className="label hidden md:block">Select a driver for sectors and corners</span>}
@@ -168,7 +186,8 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
         {cur === 'tyres' && <TyreStrategy detail={detail} headline={headline} selected={ids} />}
         {cur === 'pace' && <LongRunPace detail={detail} headline={headline} selected={ids} />}
         {cur === 'sectors' && <div className="grid gap-6">{selected.map((d) => <Sectors key={d.id} detail={detail} headline={headline} driver={d} />)}</div>}
-        {cur === 'turns' && <div className={`grid gap-8 ${selected.length === 2 ? 'lg:grid-cols-2' : ''}`}>{selected.map((d) => <div key={d.id}><div className="h2 mb-2">{d.name}</div><TurnByTurn sessionId={sessionId} driver={d} /></div>)}</div>}
+        {cur === 'incidents' && <IncidentTimeline sessionId={sessionId} headline={headline} selected={ids} />}
+        {cur === 'turns' && <div className={`grid gap-8 ${selected.length === 2 ? 'lg:grid-cols-2' : ''}`}>{selected.map((d) => <div key={d.id}><div className="h2 mb-2">{d.name}</div><TurnByTurn sessionId={sessionId} driver={d} headline={headline} /></div>)}</div>}
       </div>
     </section>
   )
