@@ -68,6 +68,7 @@ export function RaceWeekend() {
   const anns = useFetch((s) => api.chartAnnotations(sessionId!, s), [sessionId, ready], ready)
   const spot = useFetch((s) => api.midfieldSpotlight(sessionId!, false, s), [sessionId, ready], ready)
   const moments = useFetch((s) => api.pivotalMoments(sessionId!, s), [sessionId, ready], ready)
+  const turnIndex = useFetch((s) => api.turnDeltaDrivers(sessionId!, s), [sessionId, ready], ready)
 
   // /race/:id/driver/:ref (the shareable link for one driver's race): select that driver in the race
   useEffect(() => {
@@ -113,7 +114,7 @@ export function RaceWeekend() {
   if (!Number.isFinite(eventId) || event.error || (sessionsQ.error && !sessionsQ.loading)) return <NotFound what="race" />
 
   return (
-    <div className="wrap pt-8">
+    <div className="wrap pt-8" data-session={sessionId ?? undefined}>
       <nav className="label mb-3" aria-label="Breadcrumb">
         <Link to="/races" className="hover:text-[var(--text)]">{event.data?.season_year ?? ''} races</Link>
         <span className="mx-2">/</span>
@@ -212,7 +213,7 @@ export function RaceWeekend() {
               </button>
               {detailOpen && (
                 <div id={detailId} className="border-t" style={{ borderColor: 'var(--line)' }}>
-                  <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} /></Boundary>
+                  <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} turnsFor={turnIndex.data} /></Boundary>
                 </div>
               )}
             </section>

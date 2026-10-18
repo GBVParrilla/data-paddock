@@ -187,13 +187,21 @@ export const api = {
   chartAnnotations: (sessionId: number, s?: AbortSignal) => get<ChartAnnotation[]>(`/sessions/${sessionId}/chart-annotations`, s),
   raceControl: (sessionId: number, s?: AbortSignal) => get<RaceControl>(`/sessions/${sessionId}/race-control`, s),
   midfieldSpotlight: (sessionId: number, generate: boolean, s?: AbortSignal) =>
-    get<MidfieldStory>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
+    get<MidfieldStory | null>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
   compare: (sessionId: number, a: number, b: number, generate: boolean, s?: AbortSignal) =>
     STATIC ? staticCompare(sessionId, a, b, s) : get<Comparison>(`/sessions/${sessionId}/compare?driver_a=${a}&driver_b=${b}&generate=${generate}`, s),
-  turnDeltas: (sessionId: number, driverId: number, s?: AbortSignal) =>
-    get<TurnDeltas>(`/sessions/${sessionId}/drivers/${driverId}/turn-deltas`, s, undefined, 'Turn-by-turn times aren\'t available for this driver in this session.'),
+  /** Static site: the drivers with a turn-by-turn breakdown in this session. Live API: null (computed on request). */
+  turnDeltaDrivers: async (sessionId: number, s?: AbortSignal): Promise<number[] | null> =>
+    STATIC ? (await get<{ drivers: number[] }>('', s, `sessions/${sessionId}/turn-deltas`)).drivers : null,
+  turnDeltas: async (sessionId: number, driverId: number, s?: AbortSignal) => {
+    // ask the index first: a breakdown that isn't exported would be a 404 in the console (REVIEW_ROUND2 #48)
+    const have = await api.turnDeltaDrivers(sessionId, s)
+    if (have && !have.includes(driverId)) throw new ApiError(404, TURNS_MISSING)
+    return get<TurnDeltas>(`/sessions/${sessionId}/drivers/${driverId}/turn-deltas`, s, undefined, TURNS_MISSING)
+  },
 }
 
+const TURNS_MISSING = 'Turn-by-turn times aren\'t available for this driver in this session.'
 const STORY_NOT_WRITTEN = 'This story hasn\'t been written yet - stories are generated automatically after each session is processed.'
 
 /** 'Red Bull Racing' -> 'red-bull-racing'. Mirrors f1tracker.narratives.edits.slug. */

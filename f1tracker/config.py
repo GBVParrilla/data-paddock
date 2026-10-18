@@ -26,7 +26,7 @@ HTTP_TIMEOUT_S = 60
 # --- Derived data ----------------------------------------------------------------
 # Bump when transforms / entries / moments change meaning: the next pipeline run re-syncs entry
 # lists, refetches results that predate positionText, and recomputes every derived table.
-DATA_VERSION = "2"
+DATA_VERSION = "3"  # 3: the race-deciding lead change and early front-runner exits are always kept (ROUND2 #39)
 
 # --- Narrative generation ----------------------------------------------------
 # One-line change to move models later.

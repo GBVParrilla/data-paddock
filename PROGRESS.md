@@ -43,20 +43,20 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 
 | # | Issue | Workstream | Status |
 |---|---|---|---|
-| 8 / 41 | Turn-by-turn empty | C | open |
+| 8 / 41 | Turn-by-turn empty | C | in progress (C: the tab hides unless the picked driver has a breakdown, from a per-session index; the recompute itself runs in the next full Site run, because cached breakdowns are versioned. Proof `test_turn_deltas_reconcile` un-skips then) |
 | 24 / 43 | Season page title | A | fixed (evidence: `useTitle` on SeasonPage; crawl asserts "· Data Paddock" titles on every page and "standings" after in-app navigation) |
 | 26 / 38 | Facts repeat across panels | A | fixed (evidence: `lib/mentions.ts`; crawl `calmRacePage` finds no fact in both the summary and key moments on any session of any race) |
 | 29 | Error reports need GitHub | owner | open (needs `VITE_REPORT_EMAIL`) |
 | 36 | No AI stories live | B | open (needs the pilot run) |
 | 37 | False footer claim | A | fixed (evidence: footer line removed; one source line per page from the stories shown; crawl fails any page that says "by Claude" without a Claude-written story on it) |
-| 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | A part fixed (summary priority: deciding lead change, front-runner DNF/DNS, a stoppage that reshuffled the top five, then the biggest climb; R1 now says "Russell took the lead for good from Hamilton through the pit stops on lap 27"). R12 needs the C engine fix to emit the lap-54 change |
+| 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | C: engine fixed locally (`test_the_lead_change_that_won_the_race_and_a_lap_one_exit_are_always_kept`; on the live data R12 now lists Verstappen's lap-1 exit and Norris's lap-54 lead change). A part fixed (summary priority: deciding lead change, front-runner DNF/DNS, a stoppage that reshuffled the top five, then the biggest climb; R1 now says "Russell took the lead for good from Hamilton through the pit stops on lap 27"). R12 needs the C engine fix to emit the lap-54 change |
 | 40 | Template prose reads like a log | B | open |
 | 42 | No freshness stamp | A | fixed (evidence: `meta.json`/`/meta`; crawl asserts "Data through round N · updated D Mon" on home, every race and standings) |
-| 44 | DNS car has a tyre bar | C | open |
+| 44 | DNS car has a tyre bar | C | fixed locally (`session_detail` drops DNS stints; invariant `test_no_tyre_stint_for_a_car_that_never_started` failed on 4 sessions before, passes after) |
 | 45 | Pts off-screen on phones | A | fixed (evidence: Grid and Stops hidden below 640px; mobile crawl asserts Pts in the viewport; a new check fails if the classification scrolls sideways at any width, which also caught a 16–40px overflow at 1024–1360px) |
 | 46 | Pages run long | A | fixed for the targets (evidence: page-metrics below; home 375px 3,418 < 3,500; race 1360px 1,925 < 2,200) |
 | 47 | Lint warnings | A | fixed (evidence: `npm run lint` 0 warnings, down from 5) |
-| 48 | Optional per-session files 404 on the live site: `midfield-spotlight.json` when no story stood out, `turn-deltas.json` until the recompute | C | open (found by crawling with a server that returns real 404s; `vite preview` answers them with HTML, which hid them in CI) |
+| 48 | Optional per-session files 404 on the live site: `midfield-spotlight.json` when no story stood out, `turn-deltas.json` until the recompute | C | fixed locally (spotlight always written, `null` when none; a per-session turn-deltas index the client asks first; two invariants; crawl against a server with real 404s has no console errors) (found by crawling with a server that returns real 404s; `vite preview` answers them with HTML, which hid them in CI) |
 
 ## Round 2: scorecard log
 

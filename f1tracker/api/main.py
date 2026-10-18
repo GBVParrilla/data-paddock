@@ -288,10 +288,12 @@ def session_detail(session_id: int, driver_id: int | None = Query(None), db: Orm
             q = q.where(model.driver_id == driver_id)
         return [_row(r) for r in db.scalars(q.order_by(*order)).all()]
 
+    # a car that never started has no stint, whatever tyres OpenF1 says it was fitted with (REVIEW_ROUND2 #44)
+    dns = set(db.scalars(select(HeadlineRace.driver_id).where(HeadlineRace.session_id == session_id, HeadlineRace.status_code == "DNS")).all())
     return {
         "long_run_pace": rows(DetailLongRunPace, [DetailLongRunPace.avg_lap_time_ms]),
         "qualifying_segments": rows(DetailQualifyingSegment, [DetailQualifyingSegment.segment, DetailQualifyingSegment.best_lap_ms]),
-        "stint_timeline": rows(DetailStintTimeline, [DetailStintTimeline.driver_id, DetailStintTimeline.stint_number]),
+        "stint_timeline": [r for r in rows(DetailStintTimeline, [DetailStintTimeline.driver_id, DetailStintTimeline.stint_number]) if r["driver_id"] not in dns],
         "degradation": rows(DetailDegradation, [DetailDegradation.driver_id, DetailDegradation.stint_number, DetailDegradation.lap_number_in_stint]),
         "position_by_lap": rows(DetailPositionByLap, [DetailPositionByLap.lap_number, DetailPositionByLap.position]),
         "sector_deltas": rows(DetailSectorDelta, [DetailSectorDelta.driver_id, DetailSectorDelta.lap_number, DetailSectorDelta.sector]),

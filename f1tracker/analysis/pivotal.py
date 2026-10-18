@@ -161,7 +161,11 @@ def _race_moments(ctx: Context) -> list[Moment]:
             detail = f"Race control noted an incident involving him on lap {near[0].lap}." if near else None
             ref = min(p for p in (pos, grid) if p) if (pos or grid) else None
             base = 3 + max(0, 11 - ref) * 0.5 if ref and ref <= 10 else 2.0
-            out.append(Moment("dnf", _score(ctx, base, did, pos), headline, detail, lap=(lap + 1) if lap is not None else None, driver_id=did))
+            # a front-runner gone in the first laps reshapes the race for everyone behind (REVIEW_ROUND2 #39)
+            # (front-runner: top six on the grid or in the championship; Verstappen started P7 at Zandvoort)
+            front = (ref is not None and ref <= 6) or ctx.championship.get(did, 99) <= 6
+            early_exit = lap is not None and lap < 3 and front and not r.get("finish_position")
+            out.append(Moment("dnf", _score(ctx, base, did, pos), headline, detail, lap=(lap + 1) if lap is not None else None, driver_id=did, must_include=early_exit))
 
     # recovery drives, big drops, grid drops
     for r in ctx.race:
@@ -233,10 +237,17 @@ def _race_moments(ctx: Context) -> list[Moment]:
             new, old = leader[b], leader[a]
             via_pits = any((d, l) in pit_laps for d in (new, old) for l in (a - 1, a, b))
             changes.append((b, new, old, via_pits))
-    for lap, new, old, via_pits in changes[:3]:
+    # The winner's last move into the lead decided the race, however many changes came before it
+    # (REVIEW_ROUND2 #39: Zandvoort's lap-54 change was the sixth). It is always kept; the rest compete.
+    winner = next((r["driver_id"] for r in ctx.race if r.get("finish_position") == 1), None)
+    deciding = next((c for c in reversed(changes) if c[1] == winner), None)
+    # the first two changes show how the race unfolded; more than that is noise next to the decisive one
+    for lap, new, old, via_pits in [c for c in changes[:2] if c != deciding] + ([deciding] if deciding else []):
         how = "through the pit stops" if via_pits else "on track"
-        final = rows.get(new, {}).get("finish_position") == 1
-        out.append(Moment("lead_change", _score(ctx, 4.5 if final else 3.0, new, 1), f"{name(new)} took the lead from {name.last(old)} {how} on lap {lap}.", lap=lap, driver_id=new, related_driver_id=old))
+        decisive = (lap, new, old, via_pits) == deciding
+        base = 5.0 if decisive else 3.0
+        out.append(Moment("lead_change", _score(ctx, base, new, 1), f"{name(new)} took the lead from {name.last(old)} {how} on lap {lap}.",
+                          lap=lap, driver_id=new, related_driver_id=old, must_include=decisive))
 
     # undercuts / overcuts between cars running together
     for b in pit_battles(ctx.pits, ctx.positions, ctx.lap_starts, periods):
@@ -369,7 +380,8 @@ def select_moments(candidates: list[Moment], session_type: str, race_rows: list[
     seen: set[tuple] = set()
     unique = []
     for m in sorted(candidates, key=lambda m: (-m.score, m.lap or 0)):
-        key = (m.moment_type, m.driver_id, m.lap if m.driver_id is None else None)
+        # one per driver and kind, except lead changes: a driver can take the lead more than once
+        key = (m.moment_type, m.driver_id, m.lap if m.driver_id is None or m.moment_type == "lead_change" else None)
         if key in seen:
             continue
         seen.add(key)

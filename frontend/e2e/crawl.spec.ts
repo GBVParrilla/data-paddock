@@ -179,7 +179,19 @@ for (const round of PILOT_ROUNDS) {
       await check(page, w, `R${round} ${name}: two drivers`)
       await openMoreDetail(page)
       const dd = page.getByRole('region', { name: 'Deep dive' }).getByRole('tab')
-      if (name === 'Race') expect.soft(await dd.count(), `R${round} race: deep-dive tabs`).toBeGreaterThanOrEqual(4)
+      if (name === 'Race') {
+        // tyres, sectors, race control, plus turn by turn once that driver's breakdown is exported (#8)
+        const turns = await page.evaluate(async () => {
+          const sid = document.querySelector('[data-session]')?.getAttribute('data-session')
+          const picked = [...document.querySelectorAll('section[aria-label="Classification"] tr[aria-selected="true"]')].map((t) => Number(t.getAttribute('data-driver')))
+          const res = await fetch(`${document.baseURI.replace(/\/(race|season|races)(\/.*)?(\?.*)?$/, '/')}data/sessions/${sid}/turn-deltas.json`)
+          if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) return null
+          const have = (await res.json()).drivers as number[]
+          return picked.some((d) => have.includes(d))
+        })
+        expect(turns, `R${round} race: turn-deltas index`).not.toBeNull()
+        expect.soft(await dd.count(), `R${round} race: deep-dive tabs`).toBeGreaterThanOrEqual(turns ? 4 : 3)
+      }
       for (let k = 0; k < (await dd.count()); k++) {
         await dd.nth(k).click()
         await check(page, w, `R${round} ${name}: deep dive ${(await dd.nth(k).innerText()).trim()}`)
