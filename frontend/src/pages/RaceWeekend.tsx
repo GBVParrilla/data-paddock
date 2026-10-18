@@ -148,7 +148,9 @@ export function RaceWeekend() {
   const { sessionId, driverIds, setEvent, setSession, toggleDriver, clearDrivers } = useStore()
   const [mapDriver, setMapDriver] = useState(0)
 
-  useEffect(() => setEvent(eventId), [eventId, setEvent])
+  useEffect(() => {
+    setEvent(eventId)
+  }, [eventId, setEvent])
   useEffect(() => {
     const sid = Number(search.get('session'))
     if (sid) setSession(sid)
