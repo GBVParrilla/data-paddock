@@ -3,6 +3,87 @@
 The working memory for the overhaul in `LONG_RUN_PROMPT.md` against the audit in `REVIEW.md`.
 Re-read this file whenever resuming.
 
+# Round 2
+
+Prompt: `docs/LONG_RUN_PROMPT_ROUND2.md`. Review: `docs/REVIEW_ROUND2.md`. Started 2026-10-18 on `main` at 35cff79 (PR #5 merged).
+
+## Round 2: current workstream
+
+**A (declutter)**, on `claude/laughing-clarke-t71435` branched from `main`.
+
+## Round 2: deviations from the prompt
+
+| Prompt says | What this run does | Why |
+|---|---|---|
+| One branch per workstream, each from the latest `main` | One workstream at a time on `claude/laughing-clarke-t71435`; the next one starts from `main` after the previous PR merges | This session may only push to that branch. Work for later workstreams is prepared locally meanwhile. |
+| Score against `docs/BENCHMARKS.md` §7 | Uses the section totals and row findings quoted in `docs/REVIEW_ROUND2.md` until the file exists | BENCHMARKS.md was never committed and was not provided to this session (see Needs owner). |
+
+## Round 2: verification of REVIEW_ROUND2.md
+
+Checked on a production build of `main` (35cff79) with the live `db-snapshot` (upgraded, data version 2), before any change. Numbers come from `frontend/scripts/page-metrics.mjs` (new) unless noted.
+
+| # | Claim | Verdict | Evidence |
+|---|---|---|---|
+| 36 | All 2,291 published stories are templates | Holds | Export log `stories by source: {'template': 2291}`; 1,851 stored narratives, none written after the fact-checker |
+| 37 | Footer says Claude wrote stories that are templates | Holds | `Shell.tsx` footer "Stories written by Claude from that data" on every page |
+| 38 | Same fact up to three times | Holds | R1: VER P20→P6 in the summary, Key moments and Beyond the podium; R12: ALO P18→P9 likewise |
+| 39 | Summary and moments miss how the race was won | Holds, cause found | R12 leaders: NOR 1, ANT 5, HAM 22, ANT 26, NOR 41, HAM 48, NOR 54. The engine kept only the first 3 lead changes and deduped them per driver, so laps 26–54 vanished |
+| 40 | Template prose reads like a log | Holds | "Stop 1 cost him 1 place", "(-0.06s per lap)" in R1 Gasly |
+| 41 | Turn-by-turn tab empty | Holds | 1,814 cached breakdowns, all from the old method (no `version`); the export withholds them |
+| 42 | No freshness stamp | Holds | Not on any page |
+| 43 | /season/2026 title only "Data Paddock" | Holds, more precisely | A direct load gets the prerendered title, but after in-app navigation from home the page keeps "2026 season · Data Paddock" (no `useTitle`) |
+| 44 | DNS car has a tyre bar | Holds | R1 `stints.json`: HUL (DNS) has a lap-1 hard stint |
+| 45 | Pts cut off at 375px | Holds | Classification scrolls sideways inside its panel; Pts is off-screen |
+| 46 | Pages run long | Holds | Home 7,596px at 375; race R1 3,007px at 1360 (4,896 at 375); 13–23 underlines per race page |
+| 47 | Two lint warnings | Understated | Five: `useFetch` deps, two `CircuitPanel` exports, a `Glossary` export, `check-effects.mjs` |
+
+Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 1,520 / 1,990 · R1 3,007 / 4,896 · R12 3,118 / 4,901 · R17 3,107 / 5,033 · R1 Gasly 3,210 / 5,020. Panels before a driver is picked: 7 on every race page. Underlines: R1 19, R12 17, R17 13, R1 Gasly 23.
+
+## Round 2: checklist
+
+| # | Issue | Workstream | Status |
+|---|---|---|---|
+| 8 / 41 | Turn-by-turn empty | C | open |
+| 24 / 43 | Season page title | A | open |
+| 26 / 38 | Facts repeat across panels | A | open |
+| 29 | Error reports need GitHub | owner | open (needs `VITE_REPORT_EMAIL`) |
+| 36 | No AI stories live | B | open (needs the pilot run) |
+| 37 | False footer claim | A | open |
+| 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | open |
+| 40 | Template prose reads like a log | B | open |
+| 42 | No freshness stamp | A | open |
+| 44 | DNS car has a tyre bar | C | open |
+| 45 | Pts off-screen on phones | A | open |
+| 46 | Pages run long | A | open |
+| 47 | Lint warnings | A | open |
+
+## Round 2: scorecard log
+
+| Date | Commit | Total | A | B | C | D | E | F | Gate |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-18 | 35cff79 | 65 | 24/32 | 10/14 | 6/16 | 9/12 | 6/12 | 10/14 | fails (A7) |
+
+(Reviewer's scores. Row-level re-scoring needs `docs/BENCHMARKS.md`.)
+
+## Round 2: needs owner
+
+- **Pilot story run.** Actions → Site → Run workflow: mode `stories-only`, story_rounds `1,12,17`. Workstream B starts from its snapshot. Not run yet as of 14:20 UTC.
+- **`docs/BENCHMARKS.md`.** Commit the round 1 benchmarks file. Its §7 scorecard is the bar, and this session doesn't have it.
+- **Report address (#29).** Choose an address and set the repository variable `VITE_REPORT_EMAIL`.
+- **Turn-by-turn recompute (#8/#41).** About 70 minutes of OpenF1 downloads in one Site run; Workstream C adds a switch for it.
+
+## Round 2: decisions made
+
+(added as they're made)
+
+## Round 2: next 3 actions
+
+1. Workstream A: crawler checks first (watch them fail), then items 1–13.
+2. Before/after screenshots and metrics, then the PR.
+3. Workstream C locally while A is in review.
+
+# Round 1 (closed)
+
 ## Current phase
 
 Phases 0–4 are implemented on `claude/laughing-clarke-t71435`. Phase 5 (frontend for both audiences) is partly done. Waiting on the owner for:
