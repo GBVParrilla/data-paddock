@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, HashRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { STATIC } from './api/client'
+import { Boundary, NotFound } from './components/Boundary'
 import { Shell } from './components/Shell'
 import { editorMode, githubEnabled, setEditorMode } from './lib/stories'
 import { Home } from './pages/Home'
@@ -29,6 +30,12 @@ function EditorBadge() {
   )
 }
 
+/** A crash inside one route never blanks the app; navigating away clears it. */
+function PageBoundary({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation()
+  return <Boundary key={pathname} label="This page" page>{children}</Boundary>
+}
+
 function ScrollTop() {
   const { pathname } = useLocation()
   useEffect(() => {
@@ -44,12 +51,16 @@ export default function App() {
       <Router basename={STATIC ? undefined : import.meta.env.BASE_URL}>
         <ScrollTop />
         <Shell>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/race/:eventId" element={<RaceWeekend />} />
-            <Route path="/season/:year" element={<SeasonPage />} />
-            <Route path="/season/" element={<Home />} />
-          </Routes>
+          <PageBoundary>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/races" element={<Home />} />
+              <Route path="/race/:eventId" element={<RaceWeekend />} />
+              <Route path="/season/:year" element={<SeasonPage />} />
+              <Route path="/season/" element={<Home />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </PageBoundary>
         </Shell>
       </Router>
     </StoreProvider>

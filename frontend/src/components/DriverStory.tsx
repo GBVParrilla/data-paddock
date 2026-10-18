@@ -1,18 +1,19 @@
 import { api, type Driver, type Headline, type SessionRow, type SessionType } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
 import { SESSION_SHORT, SESSION_TINY } from '../lib/f1'
+import { Term } from './Glossary'
 import { StoryMeta } from './StoryMeta'
 
 function resultIn(h: Headline, id: number): string {
   if (h.race) {
     const r = h.race.find((x) => x.driver_id === id)
     if (!r) return '–'
-    return r.finish_position ? `P${r.finish_position}` : 'DNF'
+    return r.finish_position ? `P${r.finish_position}` : r.status_code
   }
   const rows = h.practice ?? h.qualifying ?? []
-  const r = rows.find((x) => x.driver_id === id) as { rank?: number | null; position?: number | null } | undefined
+  const r = rows.find((x) => x.driver_id === id) as { rank?: number | null; position?: number | null; status_code?: string | null } | undefined
   const p = r?.rank ?? r?.position
-  return p ? `P${p}` : '–'
+  return p ? `P${p}` : r?.status_code === 'NO_TIME' ? 'No time' : '–'
 }
 
 /** One driver through the weekend: result in each session (click to switch), then the story. */
@@ -38,7 +39,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
           <span className="swatch h-8 w-1" style={{ background: color }} />
           <div>
             <div className="h2">{driver.name}</div>
-            <div className="label">{driver.team}{driver.number ? ` · #${driver.number}` : ''}</div>
+            <div className="label">{driver.team}{driver.number ? ` · #${driver.number}` : ''}{driver.stand_in && <> · <Term k="standin">stand-in</Term> (usually {driver.usual_team})</>}</div>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1" role="tablist" aria-label="Sessions">
@@ -56,33 +57,53 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
         </div>
       </div>
 
+      {arc.data && (
+        <p className="px-5 py-3 text-[13.5px] t2 border-b max-w-none" style={{ borderColor: 'var(--line)' }}>
+          <span className="label mr-2">The weekend</span>{arc.data.arc_text}
+        </p>
+      )}
+
       <div className="px-5 py-5">
         {story.loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-4" style={{ width: `${90 - i * 12}%` }} />)}</div>}
         {story.error && <p className="t2">{story.error.message}</p>}
         {story.data && (
-          <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6">
+          <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-x-10 gap-y-6">
             <div>
-              <h3 className="label mb-2">{current ? SESSION_SHORT[current.session_type as SessionType] : ''} · what happened</h3>
-              <p className="prose whitespace-pre-line">{story.data.narrative_text}</p>
+              <div className="kicker">{current ? SESSION_SHORT[current.session_type as SessionType] : ''}</div>
+              {story.data.headline && <h3 className="display font-bold text-[22px] leading-tight mt-1.5">{story.data.headline}</h3>}
+              {story.data.summary && <p className="text-[15.5px] mt-2.5 leading-relaxed">{story.data.summary}</p>}
+              {!!story.data.key_numbers?.length && (
+                <dl className="flex flex-wrap gap-x-6 gap-y-3 mt-4">
+                  {story.data.key_numbers.map((k) => (
+                    <div key={k.label}><dt className="label">{k.label}</dt><dd className="stat num !text-[19px] mt-0.5">{k.value}</dd></div>
+                  ))}
+                </dl>
+              )}
+              <details className="mt-5 group" open={!story.data.summary}>
+                <summary className="cursor-pointer list-none text-[13px] font-medium inline-flex items-center gap-1.5 hover:text-[var(--text)] t2">
+                  <span className="group-open:hidden">Read the full story</span><span className="hidden group-open:inline">Hide the full story</span>
+                  <span aria-hidden="true" className="transition-transform group-open:rotate-90">›</span>
+                </summary>
+                <div className="prose mt-3 space-y-3">{story.data.narrative_text.split(/\n\s*\n/).map((p, i) => <p key={i}>{p}</p>)}</div>
+              </details>
             </div>
-            <div>
-              <h3 className="label mb-2 flex items-center gap-2">
-                Strategy analysis
-                <span className="chip !text-[11px] !py-0" title="Inference from the data, not established fact">Interpretation</span>
-              </h3>
-              <p className="prose-2 whitespace-pre-line">{story.data.strategy_analysis_text}</p>
-            </div>
-          </div>
-        )}
-        {arc.data && (
-          <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--line)' }}>
-            <h3 className="label mb-2">The weekend in context</h3>
-            <p className="prose-2 whitespace-pre-line max-w-3xl">{arc.data.arc_text}</p>
+            {story.data.strategy_analysis_text && (
+              <div className="lg:border-l lg:pl-8" style={{ borderColor: 'var(--line)' }}>
+                <h3 className="label mb-2 flex items-center gap-2">
+                  Analysis
+                  <span className="chip !text-[11px] !py-0"><Term k="interpretation">Interpretation</Term></span>
+                </h3>
+                <p className="prose-2">{story.data.strategy_analysis_text}</p>
+                {!!story.data.glossary_terms?.length && (
+                  <p className="label mt-4 leading-6">Terms: {story.data.glossary_terms.map((t, i) => <span key={t}>{i ? ', ' : ''}<Term k={t} /></span>)}</p>
+                )}
+              </div>
+            )}
           </div>
         )}
         {story.data && (
           <div className="mt-6">
-            <StoryMeta info={story.data} route={route} story={{ title: `${driver.name} · ${current?.session_type} · ${story.data.story_key.split('/')[1]}`, text: story.data.narrative_text, analysis: story.data.strategy_analysis_text, generatedAt: story.data.generated_at }} />
+            <StoryMeta info={story.data} route={route} story={{ title: `${driver.name} · ${current?.session_type} · ${story.data.story_key.split('/')[1]}`, text: story.data.narrative_text, analysis: story.data.strategy_analysis_text, generatedAt: story.data.generated_at ?? '' }} />
           </div>
         )}
       </div>

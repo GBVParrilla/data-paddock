@@ -59,17 +59,24 @@ export interface Event {
   lat: number | null; lon: number | null
   winner?: Driver | null; podium?: Driver[]; completed?: boolean
 }
+export type RaceStatus = 'FIN' | 'LAP' | 'DNF' | 'NC' | 'DNS' | 'DSQ'
+export interface RoundResult { position: number | null; status: RaceStatus | null; team: string | null }
 export interface StandingRow {
-  position: number; driver_id: number; name: string; code: string | null; team: string | null
-  points: number; wins: number; podiums: number; results: Record<string, number | null>; round_points: Record<string, number>
+  position: number; driver_id: number; name: string; code: string | null; team: string | null; teams: string[]
+  points: number; wins: number; podiums: number; results: Record<string, RoundResult>; round_points: Record<string, number>
 }
-export interface Standings { year: number; rounds: number[]; drivers: StandingRow[]; teams: { position: number; team: string; points: number }[] }
+export interface TeamStanding { position: number; team: string; constructor_id: string | null; points: number }
+export interface Standings { year: number; rounds: number[]; drivers: StandingRow[]; teams: TeamStanding[] }
 export interface SessionRow {
   id: number; event_id: number; session_type: SessionType; start_time: string | null; end_time: string | null
   status: 'upcoming' | 'live' | 'completed'; openf1_session_key: number | null
   ingestion: { results: boolean; details: boolean; transforms: boolean }
 }
-export interface Driver { id: number; driver_ref: string; name: string; code: string | null; team: string | null; number: number | null }
+/** A driver as entered for one event: team and car number are that weekend's. */
+export interface Driver {
+  id: number; driver_ref: string; name: string; code: string | null; team: string | null; number: number | null
+  stand_in?: boolean; usual_team?: string | null; practice_only?: boolean
+}
 export interface GeoBBox { south: number; west: number; north: number; east: number }
 export interface Turn { number: number; index: number; distance_m: number; apex_speed_kph: number }
 export interface TrackOutline {
@@ -80,21 +87,28 @@ export interface TrackOutline {
   orientation?: 'f1' | 'estimated'
   source: { session_id: number; driver_id: number; lap_number: number }; note: string
 }
-export interface TurnDelta { number: number; sector: 1 | 2 | 3; distance_m: number; apex_speed_kph: number; delta_ms: number }
+export interface TurnDelta { number: number; sector: 1 | 2 | 3; distance_m: number; from_m?: number; to_m?: number; apex_speed_kph: number; delta_ms: number }
+/** Corners + unattributed_ms = total_lap_delta_ms = lap_time_ms - reference.lap_time_ms. */
 export interface TurnDeltas {
-  session_id: number; driver_id: number; lap_number: number; is_reference_lap: boolean
-  reference: { session_id: number; driver_id: number; lap_number: number }
-  turns: TurnDelta[]; total_lap_delta_ms: number; note: string
+  version?: number; session_id: number; driver_id: number; lap_number: number; lap_time_ms?: number; is_reference_lap: boolean
+  reference: { session_id: number; driver_id: number; lap_number: number; lap_time_ms?: number }
+  turns: TurnDelta[]; total_lap_delta_ms: number; unattributed_ms?: number; note: string
 }
 export interface HeadlinePractice { session_id: number; driver_id: number; fastest_lap_ms: number | null; gap_to_fastest_ms: number | null; rank: number | null }
-export interface HeadlineQualifying { session_id: number; driver_id: number; position: number | null; gap_to_pole_ms: number | null; eliminated_in: string | null }
+/** gap_to_pole_ms is measured inside gap_segment (pole for Q3 runners, the fastest Q2 time for Q2 exits...). */
+export interface HeadlineQualifying {
+  session_id: number; driver_id: number; position: number | null; gap_to_pole_ms: number | null; gap_segment: 'Q1' | 'Q2' | 'Q3' | null
+  eliminated_in: string | null; status_code: 'OK' | 'NO_TIME' | 'DNS' | 'DSQ' | null; q1_ms: number | null; q2_ms: number | null; q3_ms: number | null
+}
 export interface HeadlineRace {
   session_id: number; driver_id: number; finish_position: number | null; grid_position: number | null; positions_gained: number | null
-  points: number; pit_stop_count: number; status: string | null
+  points: number; pit_stop_count: number; status: string | null; status_code: RaceStatus; classification_order: number | null
+  laps_completed: number | null; laps_down: number | null
 }
+export interface RaceCounts { classified: number; dnf: number; dns: number; dsq: number }
 export interface Headline {
   session: SessionRow; summary: string | null; drivers: Record<string, Driver>
-  practice?: HeadlinePractice[]; qualifying?: HeadlineQualifying[]; race?: HeadlineRace[]
+  practice?: HeadlinePractice[]; qualifying?: HeadlineQualifying[]; race?: HeadlineRace[]; counts?: RaceCounts
 }
 export interface SectorDelta { session_id: number; driver_id: number; lap_number: number; sector: 1 | 2 | 3; driver_sector_ms: number | null; session_best_sector_ms: number | null; delta_ms: number | null }
 export interface PositionByLap { session_id: number; driver_id: number; lap_number: number; position: number | null }
@@ -113,18 +127,28 @@ export interface Detail {
 export interface StoryEditInfo {
   story_key: string; edited: boolean; edit_note?: string | null; edit_stale?: boolean
 }
+/** A driver-session story. narrative_text = the full story, strategy_analysis_text = the analysis. */
 export interface Narrative extends StoryEditInfo {
-  id: number; session_id: number; driver_id: number; session_type: SessionType; narrative_text: string; strategy_analysis_text: string
-  generated_at: string; model_used: string; input_hash: string
+  session_id: number; driver_id: number; session_type: SessionType; narrative_text: string; strategy_analysis_text: string
+  generated_at: string | null; model_used: string
+  headline?: string | null; summary?: string | null; key_numbers?: { label: string; value: string }[]; glossary_terms?: string[]
+  source?: 'claude' | 'template' | 'edited'; replaced_because?: string
 }
-export interface WeekendArc extends StoryEditInfo { id: number; event_id: number; driver_id: number; arc_text: string; generated_at: string; model_used: string }
-export interface SeasonArc extends StoryEditInfo { id: number; season_id: number; subject_type: 'driver' | 'team'; subject_id: string; through_round: number; arc_text: string; generated_at: string; model_used: string }
-export interface ComparisonNarrative extends StoryEditInfo { driver_a_id: number; driver_b_id: number; comparison_text: string; generated_at: string; model_used: string }
-export interface PivotalMoment { id: number; session_id: number; lap_number: number | null; driver_id: number | null; moment_type: string; magnitude_score: number; description: string }
-export interface ChartAnnotation { lap_number: number | null; driver_id: number | null; label: string; moment_type: string; description: string; magnitude_score: number }
+export interface WeekendArc extends StoryEditInfo { event_id: number; driver_id: number; arc_text: string; generated_at: string | null; model_used: string; source?: string }
+export interface SeasonArc extends StoryEditInfo { season_id: number; subject_type: 'driver' | 'team'; subject_id: string; through_round: number; arc_text: string; generated_at: string | null; model_used: string; source?: string }
+export interface ComparisonNarrative extends StoryEditInfo { driver_a_id: number; driver_b_id: number; comparison_text: string; generated_at: string | null; model_used: string; source?: string }
+export interface PivotalMoment {
+  id: number; session_id: number; lap_number: number | null; end_lap: number | null; driver_id: number | null; related_driver_id: number | null
+  moment_type: string; magnitude_score: number; description: string; headline: string | null; detail: string | null
+}
+export interface RaceControlEvent { lap_number: number | null; time: string; kind: string; driver_ids: number[]; turn: number | null; reason: string | null; outcome: string | null; text: string }
+export interface IncidentCase { id: string; driver_ids: number[]; turn: number | null; reason: string | null; opened_lap: number | null; decided_lap: number | null; outcome: string | null; after_race: boolean }
+export interface NeutralPeriod { kind: 'SC' | 'VSC' | 'RED'; start_lap: number | null; end_lap: number | null }
+export interface RaceControl { periods: NeutralPeriod[]; cases: IncidentCase[]; events: RaceControlEvent[] }
+export interface ChartAnnotation { lap_number: number | null; end_lap?: number | null; driver_id: number | null; label: string; moment_type: string; description: string; magnitude_score: number }
 export interface MidfieldStory {
   driver_id: number; driver: string; team: string | null; score: number; story_types: string[]; reason: string; rival_id: number | null
-  runners_up: { driver_id: number; driver: string; score: number; reason: string }[]; narrative?: Narrative
+  runners_up: { driver_id: number; driver: string; team?: string | null; score: number; reason: string; story_types?: string[] }[]; narrative?: Narrative
 }
 export interface CompareDriver {
   id: number; name: string; team: string | null; position_by_lap: { lap: number; position: number }[]
@@ -156,6 +180,7 @@ export const api = {
     ),
   pivotalMoments: (sessionId: number, s?: AbortSignal) => get<PivotalMoment[]>(`/sessions/${sessionId}/pivotal-moments`, s),
   chartAnnotations: (sessionId: number, s?: AbortSignal) => get<ChartAnnotation[]>(`/sessions/${sessionId}/chart-annotations`, s),
+  raceControl: (sessionId: number, s?: AbortSignal) => get<RaceControl>(`/sessions/${sessionId}/race-control`, s),
   midfieldSpotlight: (sessionId: number, generate: boolean, s?: AbortSignal) =>
     get<MidfieldStory>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
   compare: (sessionId: number, a: number, b: number, generate: boolean, s?: AbortSignal) =>

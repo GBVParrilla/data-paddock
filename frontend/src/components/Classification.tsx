@@ -1,8 +1,10 @@
-import type { Driver, Headline } from '../api/client'
+import type { Driver, Headline, HeadlineRace } from '../api/client'
 import { fmtMs } from '../api/client'
+import { positionLabel, raceGap, STATUS_TEXT } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
+import { Term } from './Glossary'
 
-type Row = { id: number; pos: number | null; status?: string | null; cells: (string | React.ReactNode)[] }
+type Row = { id: number; pos: string; out?: boolean; note?: string; cells: (string | React.ReactNode)[] }
 
 function Delta({ v }: { v: number | null | undefined }) {
   if (!v) return <span className="t3">–</span>
@@ -15,46 +17,75 @@ function Delta({ v }: { v: number | null | undefined }) {
   )
 }
 
+const OUT_TERM: Record<string, string> = { DNF: 'DNF', DNS: 'DNS', DSQ: 'DSQ', NC: 'NC' }
+
+function raceRows(rows: (HeadlineRace & { gap_to_winner_ms?: number | null })[]): Row[] {
+  // server order is the official classification: classified cars, then unclassified, DNS, DSQ
+  return rows.map((r) => {
+    const out = !r.finish_position && r.status_code !== 'FIN' && r.status_code !== 'LAP'
+    const classifiedRetirement = r.finish_position && (r.status_code === 'DNF' || r.status_code === 'NC')
+    return {
+      id: r.driver_id,
+      pos: positionLabel(r),
+      out,
+      note: classifiedRetirement ? 'Retired, classified' : undefined,
+      cells: [raceGap(r), r.grid_position ?? (r.status_code === 'DNS' ? '–' : 'Pit'), <Delta key="d" v={r.positions_gained} />, r.status_code === 'DNS' ? '' : r.pit_stop_count, r.points || ''],
+    }
+  })
+}
+
 /** Session results. Clicking a row selects that driver (a second click on another adds a comparison). */
 export function Classification({ headline, selected, colors, onSelect }: { headline: Headline; selected: number[]; colors: string[]; onSelect: (id: number) => void }) {
   const drv = (id: number): Driver | undefined => headline.drivers[String(id)]
-  let head: string[] = []
+  const sq = headline.session.session_type === 'SQ'
+  let head: React.ReactNode[] = []
   let rows: Row[] = []
   if (headline.practice) {
     head = ['Best lap', 'Gap']
-    rows = headline.practice.map((r) => ({ id: r.driver_id, pos: r.rank, cells: [fmtMs(r.fastest_lap_ms), r.gap_to_fastest_ms ? `+${fmtMs(r.gap_to_fastest_ms)}` : ''] }))
+    rows = [...headline.practice].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+      .map((r) => ({ id: r.driver_id, pos: r.rank ? String(r.rank) : '–', cells: [fmtMs(r.fastest_lap_ms), r.gap_to_fastest_ms ? `+${fmtMs(r.gap_to_fastest_ms)}` : ''] }))
   } else if (headline.qualifying) {
-    head = ['Gap', 'Out']
-    rows = headline.qualifying.map((r) => ({ id: r.driver_id, pos: r.position, cells: [r.gap_to_pole_ms ? `+${fmtMs(r.gap_to_pole_ms)}` : r.position === 1 ? 'Pole' : '', r.eliminated_in ?? ''] }))
-  } else if (headline.race) {
-    head = ['Grid', '+/−', 'Stops', 'Pts']
-    rows = headline.race.map((r) => {
-      const out = r.status && !/^(Finished|Lapped|\+\d+ Laps?)$/i.test(r.status)
-      return { id: r.driver_id, pos: r.finish_position, status: out ? r.status : null, cells: [r.grid_position ?? '–', <Delta key="d" v={r.positions_gained} />, r.pit_stop_count, r.points || ''] }
+    head = [<span key="g">Gap <span className="t3 font-normal">(in segment)</span></span>, 'Out']
+    rows = [...headline.qualifying].sort((a, b) => (a.position ?? 99) - (b.position ?? 99)).map((r) => {
+      const seg = r.gap_segment ? (sq ? `S${r.gap_segment}` : r.gap_segment) : ''
+      const gap = r.status_code === 'NO_TIME' ? 'No time'
+        : r.position === 1 ? 'Pole'
+        : r.gap_to_pole_ms != null ? <span key="g">+{fmtMs(r.gap_to_pole_ms)} <span className="t3 text-[11px]">{seg}</span></span>
+        : <span key="g" className="t3">No {sq ? 'SQ3' : 'Q3'} time</span>
+      const out = r.eliminated_in ? (sq ? `S${r.eliminated_in}` : r.eliminated_in) : ''
+      return { id: r.driver_id, pos: r.position ? String(r.position) : '–', out: r.status_code === 'NO_TIME', cells: [gap, out] }
     })
+  } else if (headline.race) {
+    head = ['Gap', 'Grid', '+/−', 'Stops', 'Pts']
+    rows = raceRows(headline.race)
   }
-  rows.sort((a, b) => (a.pos ?? 99) - (b.pos ?? 99))
   return (
     <table className="tbl">
       <thead>
         <tr>
           <th className="w-10">Pos</th>
           <th>Driver</th>
-          {head.map((h) => <th key={h} className="r">{h}</th>)}
+          {head.map((h, i) => <th key={i} className="r">{h}</th>)}
         </tr>
       </thead>
       <tbody>
         {rows.map((r) => {
           const d = drv(r.id)
           const sel = selected.indexOf(r.id)
+          const status = headline.race?.find((x) => x.driver_id === r.id)?.status_code
           return (
-            <tr key={r.id} className="clickable" aria-selected={sel !== -1} onClick={() => onSelect(r.id)} tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect(r.id))}>
-              <td className="num t2">{r.status ? <span className="t3 text-[11px]">{r.status.length > 4 ? 'DNF' : r.status}</span> : (r.pos ?? '–')}</td>
+            <tr key={r.id} className="clickable" aria-selected={sel !== -1} onClick={() => onSelect(r.id)} tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.id) } }}>
+              <td className="num t2">
+                {r.out && OUT_TERM[r.pos] ? <span className="text-[11px] font-semibold t3"><Term k={r.pos}>{r.pos}</Term></span> : r.pos}
+              </td>
               <td>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <span className="swatch h-4" style={{ background: sel !== -1 ? colors[sel] : teamColor(d?.team), opacity: sel !== -1 ? 1 : 0.85 }} />
-                  <span className="font-semibold w-9">{d?.code ?? ''}</span>
-                  <span className="t2 truncate max-w-[9rem] hidden sm:inline">{d?.name}</span>
+                  <span className="font-semibold w-9 shrink-0">{d?.code ?? ''}</span>
+                  <span className="t2 truncate max-w-[9rem] hidden sm:inline lg:hidden 2xl:inline">{d?.name}</span>
+                  {d?.stand_in && <span className="chip shrink-0" title={`Usually drives for ${d.usual_team}`}>Stand-in</span>}
+                  {r.note && <span className="label shrink-0" title={status ? STATUS_TEXT[status] : undefined}>{r.note}</span>}
                 </div>
               </td>
               {r.cells.map((c, i) => <td key={i} className="r num t2">{c}</td>)}
