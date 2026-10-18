@@ -161,7 +161,10 @@ export interface Comparison {
   narrative?: ComparisonNarrative
 }
 
+export interface SiteMeta { season_year: number | null; last_round: number | null; last_event: string | null; generated_at: string }
+
 export const api = {
+  meta: (s?: AbortSignal) => get<SiteMeta>('/meta', s),
   seasons: (s?: AbortSignal) => get<Season[]>('/seasons', s),
   events: (year: number, s?: AbortSignal) => get<Event[]>(`/seasons/${year}/events`, s),
   standings: (year: number, s?: AbortSignal) => get<Standings>(`/seasons/${year}/standings`, s, undefined, 'No results yet this season.'),
@@ -200,9 +203,11 @@ export function slug(text: string): string {
 
 /** Static mode: the detail view assembled from the small per-view files the exporter writes. */
 async function staticDetail(sessionId: number, s?: AbortSignal): Promise<Detail> {
-  const opt = <T,>(p: Promise<T>, empty: T) => p.catch((e) => { if (e instanceof ApiError) return empty; throw e })
+  // positions are exported for races and sprints only; asking for them elsewhere is a 404 in the console
+  const { session } = await get<Headline>(`/sessions/${sessionId}/headline`, s)
+  const raceLike = session.session_type === 'R' || session.session_type === 'S'
   const [pos, stints, sectors, pace] = await Promise.all([
-    opt(get<{ position_by_lap: PositionByLap[] }>('', s, `sessions/${sessionId}/positions`), { position_by_lap: [] }),
+    raceLike ? get<{ position_by_lap: PositionByLap[] }>('', s, `sessions/${sessionId}/positions`) : Promise.resolve({ position_by_lap: [] as PositionByLap[] }),
     get<{ stint_timeline: StintRow[]; pit_stops: PitStopRow[] }>('', s, `sessions/${sessionId}/stints`),
     get<{ best: { driver_id: number; sector: 1 | 2 | 3; best_ms: number }[] }>('', s, `sessions/${sessionId}/sectors`),
     get<{ long_run_pace: Detail['long_run_pace'] }>('', s, `sessions/${sessionId}/pace`),

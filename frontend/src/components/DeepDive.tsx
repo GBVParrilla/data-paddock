@@ -173,13 +173,10 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
   if (!cur) return null
   const ids = selected.map((d) => d.id)
   return (
-    <section className="panel" aria-label="Deep dive">
+    <section aria-label="Deep dive">
       <div className="px-5 pt-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="tabs overflow-x-auto" role="tablist">
-            {visible.map((t) => <button key={t.id} role="tab" aria-selected={t.id === cur} onClick={() => setTab(t.id)}>{t.label}</button>)}
-          </div>
-          {!selected.length && <span className="label hidden md:block">Select a driver for sectors and corners</span>}
+        <div className="tabs overflow-x-auto" role="tablist">
+          {visible.map((t) => <button key={t.id} role="tab" aria-selected={t.id === cur} onClick={() => setTab(t.id)}>{t.label}</button>)}
         </div>
       </div>
       <div className="px-5 py-5">

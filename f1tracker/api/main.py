@@ -3,6 +3,7 @@ if the pipeline hasn't yet; human edits from stories/*.md are layered on top. Th
 uses the same handlers via scripts/export_static.py and never calls Claude."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from pathlib import Path
@@ -136,6 +137,21 @@ def list_drivers(db: OrmSession = Depends(get_db)) -> list[dict]:
 @app.get("/seasons")
 def list_seasons(db: OrmSession = Depends(get_db)) -> list[dict]:
     return [{"id": s.id, "year": s.year} for s in db.scalars(select(Season).order_by(Season.year.desc())).all()]
+
+
+@app.get("/meta")
+def site_meta(db: OrmSession = Depends(get_db)) -> dict:
+    """What the site's data covers: the latest season's last completed round, and when this was produced
+    (the freshness stamp, REVIEW_ROUND2 #42)."""
+    season = db.scalars(select(Season).order_by(Season.year.desc())).first()
+    done = [e for e in season_events(season.year, db=db) if e["completed"]] if season else []
+    last = max(done, key=lambda e: e["round"]) if done else None
+    return {
+        "season_year": season.year if season else None,
+        "last_round": last["round"] if last else None,
+        "last_event": last["name"] if last else None,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
 
 
 @app.get("/events/{event_id}/track-outline")

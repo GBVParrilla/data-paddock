@@ -9,7 +9,7 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND2.md`. Review: `docs/REVIEW_ROUND2.md`. Start
 
 ## Round 2: current workstream
 
-**A (declutter)**, on `claude/laughing-clarke-t71435` branched from `main`.
+**A (declutter)**: built, PR open. **C** next.
 
 ## Round 2: deviations from the prompt
 
@@ -44,18 +44,19 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 | # | Issue | Workstream | Status |
 |---|---|---|---|
 | 8 / 41 | Turn-by-turn empty | C | open |
-| 24 / 43 | Season page title | A | open |
-| 26 / 38 | Facts repeat across panels | A | open |
+| 24 / 43 | Season page title | A | fixed (evidence: `useTitle` on SeasonPage; crawl asserts "· Data Paddock" titles on every page and "standings" after in-app navigation) |
+| 26 / 38 | Facts repeat across panels | A | fixed (evidence: `lib/mentions.ts`; crawl `calmRacePage` finds no fact in both the summary and key moments on any session of any race) |
 | 29 | Error reports need GitHub | owner | open (needs `VITE_REPORT_EMAIL`) |
 | 36 | No AI stories live | B | open (needs the pilot run) |
-| 37 | False footer claim | A | open |
-| 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | open |
+| 37 | False footer claim | A | fixed (evidence: footer line removed; one source line per page from the stories shown; crawl fails any page that says "by Claude" without a Claude-written story on it) |
+| 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | A part fixed (summary priority: deciding lead change, front-runner DNF/DNS, a stoppage that reshuffled the top five, then the biggest climb; R1 now says "Russell took the lead for good from Hamilton through the pit stops on lap 27"). R12 needs the C engine fix to emit the lap-54 change |
 | 40 | Template prose reads like a log | B | open |
-| 42 | No freshness stamp | A | open |
+| 42 | No freshness stamp | A | fixed (evidence: `meta.json`/`/meta`; crawl asserts "Data through round N · updated D Mon" on home, every race and standings) |
 | 44 | DNS car has a tyre bar | C | open |
-| 45 | Pts off-screen on phones | A | open |
-| 46 | Pages run long | A | open |
-| 47 | Lint warnings | A | open |
+| 45 | Pts off-screen on phones | A | fixed (evidence: Grid and Stops hidden below 640px; mobile crawl asserts Pts in the viewport; a new check fails if the classification scrolls sideways at any width, which also caught a 16–40px overflow at 1024–1360px) |
+| 46 | Pages run long | A | fixed for the targets (evidence: page-metrics below; home 375px 3,418 < 3,500; race 1360px 1,925 < 2,200) |
+| 47 | Lint warnings | A | fixed (evidence: `npm run lint` 0 warnings, down from 5) |
+| 48 | Optional per-session files 404 on the live site: `midfield-spotlight.json` when no story stood out, `turn-deltas.json` until the recompute | C | open (found by crawling with a server that returns real 404s; `vite preview` answers them with HTML, which hid them in CI) |
 
 ## Round 2: scorecard log
 
@@ -72,15 +73,29 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 - **Report address (#29).** Choose an address and set the repository variable `VITE_REPORT_EMAIL`.
 - **Turn-by-turn recompute (#8/#41).** About 70 minutes of OpenF1 downloads in one Site run; Workstream C adds a switch for it.
 
+## Round 2: after Workstream A (measured, same build setup as "before")
+
+1360px / 375px: home 1,667 / 3,418 · races 2,309 / 6,288 · standings 1,544 / 1,976 · R1 1,925 / 3,088 · R12 1,925 / 2,955 · R17 1,925 / 3,070 · R1 Gasly 3,293 / 5,089 · R1 Gasly Expert 3,581 / 5,670. Panels before a driver is picked: 5 on every race page (was 7). Underlines: R1 4, R12 5, R17 4 (were 19, 17, 13). Crawl 18/18 (desktop and mobile), unit 44, invariants 206 + 1 skipped (turn deltas).
+
 ## Round 2: decisions made
 
-(added as they're made)
+| # | Decision | Alternatives | Why | Undo |
+|---|---|---|---|---|
+| A1 | Home's 4 cards are the 4 rounds *before* the featured latest race | The latest 4 including it | The featured panel already shows round 17; a card would say it twice | `earlier` in `pages/Home.tsx` |
+| A2 | The "Data Paddock" wordmark hides below 640px (logo stays, labelled) | Smaller toggle labels; toggle in a menu | The header must fit logo, Races, Standings and "Essential · Expert" at 375px | `hidden sm:inline` in `Brand` (`Shell.tsx`) |
+| A3 | Midfield items only fill spare key-moment rows, except to guarantee one driver from beyond the podium | Always add two | In R12 two midfield items pushed Verstappen's lap-1 retirement out | `planSession` in `lib/mentions.ts` |
+| A4 | Classification is half the grid at 1024–1279px; "Retired, classified" note from 1280px; no full-name column at 1536px+ | Horizontal scroll | The table overflowed by 16–40px and clipped Pts on desktop | `RaceWeekend.tsx`, `Classification.tsx` |
+| A5 | Standings subtitle "After N rounds" replaced by the freshness stamp | Both | Same fact twice | `SeasonPage.tsx` |
+| A6 | "updated <date>" is the export time | Last ingestion time | The daily run checks the sources then exports; re-run transforms would otherwise move ingestion times | `site_meta` in `api/main.py` |
+| A7 | AI authorship wording: "Stories on this page are written by Claude from the timing data and fact-checked against it" only when a Claude-written story is on the page; otherwise "computed from the timing data"; mixed pages give counts | Keep a global footer line | #37; flagged because it describes AI authorship | `components/PageSources.tsx` |
+| A8 | "A red flag / the safety car reshuffled the top five" compares the lap before with the first lap after | Three laps after | My first version credited Antonelli's lap-5 pass in R12 to the lap-2 red flag; the top five were identical on laps 1–4 | `howItWasWon` in `lib/mentions.ts` |
+| A9 | More detail's closed row names what's inside ("Tyres, sectors and race control") | Title only | A closed box with no hint hides the tyre chart people used to see | `RaceWeekend.tsx` |
 
 ## Round 2: next 3 actions
 
-1. Workstream A: crawler checks first (watch them fail), then items 1–13.
-2. Before/after screenshots and metrics, then the PR.
-3. Workstream C locally while A is in review.
+1. Owner: review and merge the Workstream A PR; run the pilot story workflow.
+2. Workstream C (pipeline and data: #39 engine, #44, #48, #8/#41 switch), prepared locally while A is in review.
+3. Workstream B once the pilot snapshot exists.
 
 # Round 1 (closed)
 

@@ -1,6 +1,8 @@
-import { api, type Driver, type Headline, type SessionRow, type SessionType } from '../api/client'
+import { api, type Driver, type Headline, type SessionRow, type SessionType, type WeekendArc } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
-import { SESSION_SHORT, SESSION_TINY } from '../lib/f1'
+import { nth, SESSION_SHORT, SESSION_TINY } from '../lib/f1'
+import { useMode } from '../state/mode'
+import { asSource, useStorySource } from '../state/sources'
 import { Term } from './Glossary'
 import { StoryMeta } from './StoryMeta'
 
@@ -16,15 +18,31 @@ function resultIn(h: Headline, id: number): string {
   return p ? `P${p}` : r?.status_code === 'NO_TIME' ? 'No time' : '–'
 }
 
-/** One driver through the weekend: result in each session (click to switch), then the story. */
-export function DriverStory({ eventId, sessionId, sessions, driver, color, onSession }: {
+/** The weekend in a paragraph, under the session strip. It counts towards the page's source line. */
+function WeekendLine({ arc }: { arc: WeekendArc }) {
+  const source = asSource(arc.source, arc.edited)
+  const badge = useStorySource(source)
+  return (
+    <p className="px-5 py-3 text-[13.5px] t2 border-b max-w-none" style={{ borderColor: 'var(--line)' }} data-story-source={source}>
+      <span className="label mr-2">The weekend</span>{arc.arc_text}
+      {badge && <span className="chip !py-0 ml-2 align-middle">{badge}</span>}
+    </p>
+  )
+}
+
+/** One driver through the weekend: result in each session (click to switch), then the story.
+ * Essential: verdict headline, what happened, up to three numbers. Expert: the full story, every key number
+ * and the sector ranks inline (decision D5). */
+export function DriverStory({ eventId, sessionId, sessions, driver, color, onSession, sectorRanks }: {
   eventId: number
   sessionId: number
   sessions: SessionRow[]
   driver: Driver
   color: string
   onSession: (id: number) => void
+  sectorRanks?: { sec: number; rank: number; of: number }[] | null
 }) {
+  const { expert } = useMode()
   const ready = sessions.filter((s) => s.ingestion.transforms)
   const results = useFetch((s) => Promise.all(ready.map((x) => api.headline(x.id, s))), [ready.map((x) => x.id).join(',')], ready.length > 0)
   const story = useFetch((s) => api.narrative(sessionId, driver.id, s), [sessionId, driver.id])
@@ -57,11 +75,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
         </div>
       </div>
 
-      {arc.data && (
-        <p className="px-5 py-3 text-[13.5px] t2 border-b max-w-none" style={{ borderColor: 'var(--line)' }}>
-          <span className="label mr-2">The weekend</span>{arc.data.arc_text}
-        </p>
-      )}
+      {arc.data && <WeekendLine arc={arc.data} />}
 
       <div className="px-5 py-5">
         {story.loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-4" style={{ width: `${90 - i * 12}%` }} />)}</div>}
@@ -74,12 +88,18 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
               {story.data.summary && <p className="text-[15.5px] mt-2.5 leading-relaxed">{story.data.summary}</p>}
               {!!story.data.key_numbers?.length && (
                 <dl className="flex flex-wrap gap-x-6 gap-y-3 mt-4">
-                  {story.data.key_numbers.map((k) => (
+                  {story.data.key_numbers.slice(0, expert ? undefined : 3).map((k) => (
                     <div key={k.label}><dt className="label">{k.label}</dt><dd className="stat num !text-[19px] mt-0.5">{k.value}</dd></div>
                   ))}
                 </dl>
               )}
-              <details className="mt-5 group" open={!story.data.summary}>
+              {expert && sectorRanks && (
+                <p className="text-[13px] t2 mt-3" data-expert="sector-ranks">
+                  <span className="label mr-2">Sectors</span>
+                  {sectorRanks.map((r) => `S${r.sec} ${nth(r.rank)}`).join(' · ')} <span className="t3">of {sectorRanks[0].of} who set a time</span>
+                </p>
+              )}
+              <details key={`${story.data.story_key}-${expert}`} className="mt-5 group" open={expert || !story.data.summary}>
                 <summary className="cursor-pointer list-none text-[13px] font-medium inline-flex items-center gap-1.5 hover:text-[var(--text)] t2">
                   <span className="group-open:hidden">Read the full story</span><span className="hidden group-open:inline">Hide the full story</span>
                   <span aria-hidden="true" className="transition-transform group-open:rotate-90">›</span>
@@ -94,9 +114,6 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
                   <span className="chip !text-[11px] !py-0"><Term k="interpretation">Interpretation</Term></span>
                 </h3>
                 <p className="prose-2">{story.data.strategy_analysis_text}</p>
-                {!!story.data.glossary_terms?.length && (
-                  <p className="label mt-4 leading-6">Terms: {story.data.glossary_terms.map((t, i) => <span key={t}>{i ? ', ' : ''}<Term k={t} /></span>)}</p>
-                )}
               </div>
             )}
           </div>

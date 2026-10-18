@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { api, type StandingRow } from '../api/client'
+import { Freshness } from '../components/Freshness'
 import { StoryMeta } from '../components/StoryMeta'
 import { useFetch } from '../hooks/useFetch'
+import { useTitle } from '../hooks/useTitle'
 import { STATUS_TEXT } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
 import { useStore } from '../state/store'
@@ -119,6 +121,7 @@ export function SeasonPage() {
   const year = Number(useParams().year)
   const { setYear } = useStore()
   useEffect(() => { if (year) setYear(year) }, [year, setYear])
+  useTitle(year ? `${year} standings` : null)
   const [search] = useSearchParams()
   const [view, setView] = useState<'drivers' | 'teams'>(search.get('type') === 'team' ? 'teams' : 'drivers')
   const [pick, setPick] = useState<{ type: 'driver' | 'team'; id: string } | null>(search.get('id') ? { type: search.get('type') === 'team' ? 'team' : 'driver', id: search.get('id')! } : null)
@@ -133,7 +136,8 @@ export function SeasonPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="h1">{year} standings</h1>
-          <p className="t2 mt-2">{rounds.length ? `After ${rounds.length} round${rounds.length === 1 ? '' : 's'}. Select a ${view === 'drivers' ? 'driver' : 'team'} for their season story.` : ' '}</p>
+          <Freshness className="mt-2" />
+          {rounds.length > 0 && <p className="t2 mt-1.5 text-[14px]" data-hint>Select a {view === 'drivers' ? 'driver' : 'team'} for their season story.</p>}
         </div>
         <div className="seg">
           <button aria-pressed={view === 'drivers'} onClick={() => setView('drivers')}>Drivers</button>

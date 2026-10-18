@@ -90,6 +90,7 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
         shutil.rmtree(out)
     write = _Writer(out)
 
+    write("meta", api.site_meta(db=db))
     write("seasons", api.list_seasons(db=db))
     write("drivers", api.list_drivers(db=db))
 

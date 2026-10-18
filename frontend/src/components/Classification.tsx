@@ -40,6 +40,8 @@ export function Classification({ headline, selected, colors, onSelect }: { headl
   const sq = headline.session.session_type === 'SQ'
   let head: React.ReactNode[] = []
   let rows: Row[] = []
+  // columns hidden on phones: Grid and Stops (+/− already shows the grid move); Pts stays (REVIEW_ROUND2 #45)
+  let phoneHidden = new Set<number>()
   if (headline.practice) {
     head = ['Best lap', 'Gap']
     rows = [...headline.practice].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
@@ -58,6 +60,7 @@ export function Classification({ headline, selected, colors, onSelect }: { headl
   } else if (headline.race) {
     head = ['Gap', 'Grid', '+/−', 'Stops', 'Pts']
     rows = raceRows(headline.race)
+    phoneHidden = new Set([1, 3])
   }
   return (
     <table className="tbl">
@@ -65,7 +68,7 @@ export function Classification({ headline, selected, colors, onSelect }: { headl
         <tr>
           <th className="w-10">Pos</th>
           <th>Driver</th>
-          {head.map((h, i) => <th key={i} className="r">{h}</th>)}
+          {head.map((h, i) => <th key={i} className={`r ${phoneHidden.has(i) ? 'hidden sm:table-cell' : ''}`}>{h}</th>)}
         </tr>
       </thead>
       <tbody>
@@ -74,7 +77,7 @@ export function Classification({ headline, selected, colors, onSelect }: { headl
           const sel = selected.indexOf(r.id)
           const status = headline.race?.find((x) => x.driver_id === r.id)?.status_code
           return (
-            <tr key={r.id} className="clickable" aria-selected={sel !== -1} onClick={() => onSelect(r.id)} tabIndex={0}
+            <tr key={r.id} className="clickable" aria-selected={sel !== -1} onClick={() => onSelect(r.id)} tabIndex={0} data-driver={r.id} data-pos={r.pos}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.id) } }}>
               <td className="num t2">
                 {r.out && OUT_TERM[r.pos] ? <span className="text-[11px] font-semibold t3"><Term k={r.pos}>{r.pos}</Term></span> : r.pos}
@@ -83,12 +86,12 @@ export function Classification({ headline, selected, colors, onSelect }: { headl
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="swatch h-4" style={{ background: sel !== -1 ? colors[sel] : teamColor(d?.team), opacity: sel !== -1 ? 1 : 0.85 }} />
                   <span className="font-semibold w-9 shrink-0">{d?.code ?? ''}</span>
-                  <span className="t2 truncate max-w-[9rem] hidden sm:inline lg:hidden 2xl:inline">{d?.name}</span>
+                  <span className="t2 truncate max-w-[9rem] hidden sm:inline lg:hidden">{d?.name}</span>
                   {d?.stand_in && <span className="chip shrink-0" title={`Usually drives for ${d.usual_team}`}>Stand-in</span>}
-                  {r.note && <span className="label shrink-0" title={status ? STATUS_TEXT[status] : undefined}>{r.note}</span>}
+                  {r.note && <span className="label shrink-0 hidden xl:inline" title={status ? STATUS_TEXT[status] : undefined}>{r.note}</span>}
                 </div>
               </td>
-              {r.cells.map((c, i) => <td key={i} className="r num t2">{c}</td>)}
+              {r.cells.map((c, i) => <td key={i} className={`r num t2 ${phoneHidden.has(i) ? 'hidden sm:table-cell' : ''}`}>{c}</td>)}
             </tr>
           )
         })}
