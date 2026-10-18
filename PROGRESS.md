@@ -68,7 +68,8 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 
 ## Round 2: needs owner
 
-- **Pilot story run.** Actions → Site → Run workflow: mode `stories-only`, story_rounds `1,12,17`. Workstream B starts from its snapshot. Not run yet as of 14:20 UTC.
+- **Before 06:17 UTC on 19 Oct: set the repository variable `MAX_NEW_STORIES` to `0`.** The daily scheduled run uses `full` mode, which writes stories for every round. The prompt version is part of each story's cache key, so it would rewrite up to 800 stories on the old prompt before the pilot gate. With 0, the scheduled run still updates data and turn deltas.
+- **Pilot story run, after the Workstream B PR merges.** Actions → Site → Run workflow: mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800` (about 550 stories: 330 session stories, about 150 head-to-heads, 66 weekend arcs, plus retries).
 - **`docs/BENCHMARKS.md`.** Commit the round 1 benchmarks file. Its §7 scorecard is the bar, and this session doesn't have it.
 - **Report address (#29).** Choose an address and set the repository variable `VITE_REPORT_EMAIL`.
 - **Turn-by-turn recompute (#8/#41).** About 70 minutes of OpenF1 downloads in one Site run; Workstream C adds a switch for it.
@@ -129,9 +130,9 @@ Average 3.67 (target 3.5), none below 3. Worst: R17 Q Verstappen — "Max Versta
 
 ## Round 2: next 3 actions
 
-1. Owner: review and merge the Workstream A PR; run the pilot story workflow.
-2. Workstream C (pipeline and data: #39 engine, #44, #48, #8/#41 switch), prepared locally while A is in review.
-3. Workstream B once the pilot snapshot exists.
+1. Owner: merge PR #6 (A). Then I push C (data fixes) and B (stories) as their own PRs.
+2. Owner: once B is merged, run the pilot (above). I then read the snapshot, score 15 AI stories against the 4.3 gate, and iterate the prompt up to 3 times.
+3. After the merges: live crawl, scorecard and persona pass (needs `docs/BENCHMARKS.md` for row-level scoring).
 
 # Round 1 (closed)
 
