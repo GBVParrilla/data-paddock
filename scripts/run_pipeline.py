@@ -30,6 +30,7 @@ def main() -> None:
     ap.add_argument("--max-new-stories", type=int, default=None, help="cap on Claude calls this run (the rest wait for the next run)")
     ap.add_argument("--time-budget-min", type=float, default=None, help="stop starting new work after this many minutes")
     ap.add_argument("--workers", type=int, default=STORY_WORKERS, help="parallel Claude calls")
+    ap.add_argument("--story-rounds", type=str, default=None, help="comma-separated rounds to write stories for (the pilot set); default: all")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
@@ -43,6 +44,7 @@ def main() -> None:
         max_new_stories=args.max_new_stories,
         time_budget_min=args.time_budget_min,
         workers=args.workers,
+        story_rounds=[int(x) for x in args.story_rounds.split(",")] if args.story_rounds else None,
     )
     if report and report.failures:
         for f in report.failures[:50]:

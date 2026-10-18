@@ -214,17 +214,140 @@ def _present(db: OrmSession, row: Any, key: str, text_field: str, analysis_field
     return out
 
 
-def present_driver_session(db: OrmSession, n: DriverSessionNarrative) -> dict[str, Any]:
-    return _present(db, n, driver_session_key(db, n.session_id, n.driver_id), "narrative_text", "strategy_analysis_text")
+def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify: bool = True) -> dict[str, Any]:
+    """The story as published: a human edit if there is one, else the AI story if it still passes the
+    fact-check against today's data, else the story written by code from the fact sheet."""
+    import json
+
+    out = _present(db, n, driver_session_key(db, n.session_id, n.driver_id), "narrative_text", "strategy_analysis_text")
+    out["key_numbers"] = json.loads(n.key_numbers_json) if n.key_numbers_json else []
+    out["glossary_terms"] = json.loads(n.glossary_json) if n.glossary_json else []
+    out["source"] = "edited" if out["edited"] else "template" if n.is_template else "claude"
+    for k in ("rejected_json", "input_hash"):
+        out.pop(k, None)
+    if out["edited"] or not verify:
+        return out
+    from .factcheck import check_story
+    from .facts import build_driver_session_facts, story_context
+    from .template import template_story
+
+    try:
+        sheet = build_driver_session_facts(db, n.session_id, n.driver_id)
+    except ValueError:
+        return out
+    if n.is_template or not n.headline:
+        problems = ["written before stories were fact-checked"] if not n.is_template else []
+    else:
+        ctx = story_context(db, n.session_id)
+        data = {"headline": n.headline, "summary": n.summary, "story": n.narrative_text, "analysis": n.strategy_analysis_text}
+        problems = [str(v) for v in check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"])]
+    if problems or n.is_template:
+        t = template_story(sheet)  # always rebuilt from today's facts
+        out.update({"headline": t["headline"], "summary": t["summary"], "narrative_text": t["story"], "strategy_analysis_text": t["analysis"],
+                    "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"], "source": "template"})
+        if problems and not n.is_template:
+            out["replaced_because"] = problems[0]
+    return out
 
 
-def present_weekend_arc(db: OrmSession, a: DriverWeekendArc) -> dict[str, Any]:
-    return _present(db, a, weekend_arc_key(db, a.event_id, a.driver_id), "arc_text")
+def _verified(out: dict[str, Any], field: str, model_used: str, facts: dict, sheet: dict, ctx: dict, limits: dict, template) -> dict[str, Any]:
+    """Publish the AI text only if it passes today's fact-check; otherwise the template."""
+    from .factcheck import check_story
+
+    out["source"] = "edited" if out["edited"] else "template" if model_used == "template" else "claude"
+    out.pop("input_hash", None)
+    if out["edited"]:
+        return out
+    problems = [] if model_used == "template" else [str(v) for v in check_story({field: out[field]}, sheet, roster=ctx["roster"], entrants=ctx["entrants"], limits=limits)]
+    if problems or model_used == "template":
+        out[field] = template(facts)[field]
+        out["source"] = "template"
+        if problems:
+            out["replaced_because"] = problems[0]
+    return out
 
 
-def present_season_arc(db: OrmSession, a: SeasonArc) -> dict[str, Any]:
-    return _present(db, a, season_arc_key(db, a.season_id, a.subject_type, a.subject_id), "arc_text")
+def present_weekend_arc(db: OrmSession, a: DriverWeekendArc, *, verify: bool = True) -> dict[str, Any]:
+    out = _present(db, a, weekend_arc_key(db, a.event_id, a.driver_id), "arc_text")
+    if not verify:
+        return out
+    from .facts import story_context
+    from .weekend_arc import LIMITS, build_weekend_facts, weekend_template
+
+    try:
+        facts = build_weekend_facts(db, a.event_id, a.driver_id)
+    except ValueError:
+        return out
+    sid = db.scalar(select(Session.id).where(Session.event_id == a.event_id).limit(1))
+    sheet = {**facts, "driver": {"name": facts["driver"], "teammate": facts["teammate"]}}
+    return _verified(out, "arc_text", a.model_used, facts, sheet, story_context(db, sid), LIMITS, weekend_template)
 
 
-def present_comparison(db: OrmSession, c: ComparisonNarrative) -> dict[str, Any]:
-    return _present(db, c, comparison_key(db, c.session_id, c.driver_a_id, c.driver_b_id), "comparison_text")
+def present_season_arc(db: OrmSession, a: SeasonArc, *, verify: bool = True) -> dict[str, Any]:
+    out = _present(db, a, season_arc_key(db, a.season_id, a.subject_type, a.subject_id), "arc_text")
+    if not verify:
+        return out
+    from .season_arc import LIMITS, build_season_facts, season_check_context, season_template
+
+    try:
+        facts = build_season_facts(db, a.season_id, a.subject_type, a.subject_id)
+    except ValueError:
+        return out
+    return _verified(out, "arc_text", a.model_used, facts, facts, season_check_context(db, a.season_id), LIMITS, season_template)
+
+
+def present_comparison(db: OrmSession, c: ComparisonNarrative, *, verify: bool = True) -> dict[str, Any]:
+    out = _present(db, c, comparison_key(db, c.session_id, c.driver_a_id, c.driver_b_id), "comparison_text")
+    if not verify:
+        return out
+    from .compare import LIMITS, build_pair_facts, pair_template
+    from .facts import story_context
+
+    try:
+        pair = build_pair_facts(db, c.session_id, c.driver_a_id, c.driver_b_id)
+    except ValueError:
+        return out
+    sheet = {**pair, "driver": {"teammate": " and ".join(pair["drivers"]) if pair["teammates"] else None}}
+    return _verified(out, "comparison_text", c.model_used, pair, sheet, story_context(db, c.session_id), LIMITS, pair_template)
+
+
+# ---------------------------------------------------------------------------
+# Stories that exist only as templates (nothing stored yet, or a DNS)
+# ---------------------------------------------------------------------------
+def _apply_edit(db: OrmSession, out: dict[str, Any], field: str, analysis_field: str | None = None) -> dict[str, Any]:
+    edit = db.get(StoryEdit, out["story_key"])
+    if edit is not None:
+        out.update({"edited": True, "edit_note": edit.note, "source": "edited", "ai_" + field: out[field], field: edit.text})
+        if analysis_field and edit.analysis_text:
+            out[analysis_field] = edit.analysis_text
+    return out
+
+def template_driver_session(db: OrmSession, session_id: int, driver_id: int) -> dict[str, Any]:
+    from .facts import build_driver_session_facts
+    from .template import template_story
+
+    session = db.get(Session, session_id)
+    t = template_story(build_driver_session_facts(db, session_id, driver_id))
+    out = {
+        "session_id": session_id, "driver_id": driver_id, "session_type": session.session_type, "headline": t["headline"], "summary": t["summary"],
+        "narrative_text": t["story"], "strategy_analysis_text": t["analysis"], "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"],
+        "source": "template", "generated_at": None, "model_used": "template", "story_key": driver_session_key(db, session_id, driver_id), "edited": False,
+    }
+    return _apply_edit(db, out, "narrative_text", "strategy_analysis_text")
+
+
+def template_weekend_arc(db: OrmSession, event_id: int, driver_id: int) -> dict[str, Any]:
+    from .weekend_arc import build_weekend_facts, weekend_template
+
+    out = {"event_id": event_id, "driver_id": driver_id, "arc_text": weekend_template(build_weekend_facts(db, event_id, driver_id))["arc_text"],
+           "source": "template", "generated_at": None, "model_used": "template", "story_key": weekend_arc_key(db, event_id, driver_id), "edited": False}
+    return _apply_edit(db, out, "arc_text")
+
+
+def template_season_arc(db: OrmSession, season_id: int, subject_type: str, subject_id: str) -> dict[str, Any]:
+    from .season_arc import build_season_facts, season_template
+
+    facts = build_season_facts(db, season_id, subject_type, subject_id)
+    out = {"season_id": season_id, "subject_type": subject_type, "subject_id": subject_id, "through_round": facts["through_round"], "arc_text": season_template(facts)["arc_text"],
+           "source": "template", "generated_at": None, "model_used": "template", "story_key": season_arc_key(db, season_id, subject_type, subject_id), "edited": False}
+    return _apply_edit(db, out, "arc_text")

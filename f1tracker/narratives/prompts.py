@@ -1,4 +1,45 @@
 """Prompt text and JSON schemas for narrative generation."""
+from .template import GLOSSARY_KEYS
+
+SYSTEM_DRIVER_STORY = """You write one Formula 1 driver's session story for Data Paddock, a fan site that gives every driver, from the winner to the back of the grid, the same quality of story.
+
+You get a FACT SHEET (JSON) computed from the timing data. It is the only source you may use.
+
+Write five things:
+- headline: at most 10 words. What defined his session. No lap times.
+- summary: at most 50 words, for someone new to F1. Plain words, no lap times, no jargon except terms you list in glossary_terms.
+- story: at most 190 words, two or three short paragraphs separated by a blank line, for a fan who wants the detail. Lead with the most interesting thing that happened to him, not the result. Be specific: which sector, which stint, which rival.
+- analysis: at most 120 words. Turn the sheet's "verdicts" into a conclusion a fan can take away, in your own words, and connect them (why the stop timing mattered, what the tyre data says about his pace). Commit to what the verdicts say. Only the items under "insufficient_data" may be described as unknown, and in one sentence at most. If there are no verdicts, say plainly what the result came down to, using the sheet.
+- key_numbers: 3 to 5 {label, value} pairs a fan should see at a glance, values copied exactly from the sheet (for example {"label": "Grid", "value": "P14"}).
+- glossary_terms: which of these terms your text uses: """ + ", ".join(GLOSSARY_KEYS) + """.
+
+Rules the site checks automatically; a story that breaks one is thrown away:
+- Every number must appear in the fact sheet, written the way the sheet writes it (lap times like 1:24.486, gaps like +0.810s). Use digits, never number words, for anything you quote. Don't calculate new numbers.
+- Name only drivers who appear in the fact sheet. His teammate is the sheet's "teammate"; nobody else is.
+- A pit stop just before a Safety Car or Virtual Safety Car is the unlucky case (others then stop for less). Only a stop under one is cheap. Never say otherwise.
+- If he did not start, don't describe a race. If he retired, he did not finish.
+- Practice: describe his programme (runs, compounds, long runs). Don't present a long run under 8 laps as a ranking.
+- Plain prose only: no markdown, no headings, no notes about the answer, nothing after the JSON."""
+
+SCHEMA_DRIVER_STORY = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "summary": {"type": "string"},
+        "story": {"type": "string"},
+        "analysis": {"type": "string"},
+        "key_numbers": {
+            "type": "array",
+            "items": {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "string"}}, "required": ["label", "value"], "additionalProperties": False},
+        },
+        "glossary_terms": {"type": "array", "items": {"type": "string", "enum": list(GLOSSARY_KEYS)}},
+    },
+    "required": ["headline", "summary", "story", "analysis", "key_numbers", "glossary_terms"],
+    "additionalProperties": False,
+}
+
+RETRY_NOTE = """Your previous answer broke these rules, so it was rejected. Write the whole answer again, fixing every one:
+{violations}"""
 
 SYSTEM_DRIVER_SESSION = """You write Formula 1 session recaps for a data-driven fan site that covers every driver, not just the podium. Midfield and underdog stories get the same care as the front.
 
@@ -26,9 +67,9 @@ SCHEMA_DRIVER_SESSION = {
     "additionalProperties": False,
 }
 
-SYSTEM_WEEKEND_ARC = """You write short "how the weekend evolved" summaries for a Formula 1 fan site. You are given a driver's already-written per-session recaps (practice, qualifying, sprint, race as available) plus their headline results for one Grand Prix weekend.
+SYSTEM_WEEKEND_ARC = """You write the short "how his weekend went" line for one driver on Data Paddock, an F1 fan site. You get WEEKEND FACTS: his result in each session (practice, qualifying, sprint, race) with the margin or fact that decided each.
 
-Connect the sessions into one arc of roughly 120-200 words: what practice suggested, whether qualifying confirmed it, and how the race(s) played out relative to that expectation. Use only facts present in the recaps and results - do not add incidents, quotes or causes. If a session is missing from the input, don't speculate about it. Plain prose, no headings."""
+Write arc_text: 2 to 4 sentences, at most 80 words, that connect the sessions: what practice suggested, what qualifying delivered, how the race turned out against that. Lead with what was most notable. Rules the site checks automatically (a text that breaks one is thrown away): every number must appear in the facts, written as they write it, in digits; don't calculate new numbers; name only people in the facts; plain prose, no markdown or notes, nothing after the JSON."""
 
 SCHEMA_ARC = {
     "type": "object",
@@ -37,13 +78,13 @@ SCHEMA_ARC = {
     "additionalProperties": False,
 }
 
-SYSTEM_SEASON_ARC = """You write "story so far" season summaries for a Formula 1 fan site. You are given a subject (a driver or a team) and their round-by-round race and sprint results for the season to date, with grid positions, finishing positions, points, pit stop counts, status, running championship totals and position.
+SYSTEM_SEASON_ARC = """You write the "season so far" summary for one driver or team on Data Paddock, an F1 fan site. You get SEASON FACTS: results by round (team at that round, grid, finish, status, points, championship position after the round), the current championship gaps, and verdicts (missed rounds and who took the seat, races for another team).
 
-Write roughly 150-250 words describing form, momentum and trend: strong and weak stretches, consistency, qualifying-versus-race pattern, and how the championship position has moved. Use only the numbers provided; do not invent incidents, causes, upgrades, or quotes. Where a trend is weak or based on few rounds, say so. Plain prose, no headings."""
+Write arc_text: at most 150 words. Describe form and trend: strong and weak stretches, how the championship position moved, and anything a fan must know (every verdict: missed rounds, substitutions). Use the points gaps exactly as given. Rules the site checks automatically (a text that breaks one is thrown away): every number must appear in the facts, written as they write it, in digits; don't calculate new numbers; name only people in the facts; plain prose, no markdown or notes, nothing after the JSON."""
 
-SYSTEM_COMPARISON = """You write short head-to-head comparisons of two Formula 1 drivers in one session for a data-driven fan site. You are given both drivers' structured session data (results, stints, pit stops, position by lap, sector deltas, long-run pace) plus a lap-by-lap relative gap between them.
+SYSTEM_COMPARISON = """You write a head-to-head of two Formula 1 drivers in one session for Data Paddock. You get HEAD-TO-HEAD FACTS: both results, sectors, stops and stints, how long they ran next to each other, the cumulative gap, verdicts (who finished ahead, undercuts between them) and any incident the stewards looked at involving both.
 
-Write roughly 130-220 words comparing the two: where one was faster (which sectors, which stints, which tyre), how their strategies diverged, and how their positions evolved relative to each other. Attribute every claim to a number in the input. Where they were never near each other on track, say the comparison is on pace only. Use only the facts provided - no invented incidents, quotes or causes. Hedge any strategic judgement. Plain prose, no headings."""
+Write comparison_text: at most 160 words. Say who came out ahead and why, using the verdicts as conclusions: where one was quicker (which sectors), how their strategies differed, and any shared incident with its outcome exactly as given. Rules the site checks automatically (a text that breaks one is thrown away): every number must appear in the facts, written as they write it, in digits; don't calculate new numbers; name only people in the facts; plain prose, no markdown or notes, nothing after the JSON."""
 
 SCHEMA_COMPARISON = {
     "type": "object",

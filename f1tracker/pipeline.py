@@ -60,6 +60,8 @@ class StoryReport:
     up_to_date: int = 0
     failed: int = 0
     skipped: int = 0  # not attempted: budget/time ran out, or a dependency is missing
+    attempts: int = 0  # Claude calls made (retries included)
+    templates: int = 0  # stories that failed every check and were replaced by the fact-sheet template
     failures: list[str] = field(default_factory=list)
 
 
@@ -218,10 +220,14 @@ def _run_jobs(plans: Iterator[Callable[[OrmSession], tuple[object, StoryJob | No
                 for fut in done:
                     job = running.pop(fut)
                     try:
-                        data, model_used = fut.result()
-                        job.save(db, data, model_used)
+                        outcome = fut.result()
+                        job.save(db, outcome)
                         db.commit()
                         report.written += 1
+                        report.attempts += outcome.attempts
+                        if outcome.fallback:
+                            report.templates += 1
+                            report.failures.append(f"{job.label}: template published ({'; '.join(outcome.violations[:2])})")
                     except NarrativeStopError:
                         for f in running:
                             f.cancel()
@@ -256,7 +262,10 @@ def _run_jobs(plans: Iterator[Callable[[OrmSession], tuple[object, StoryJob | No
         drain(1)
 
 
-def generate_season_stories(year: int, *, force: bool = False, workers: int = STORY_WORKERS, max_new: int | None = None, deadline: float | None = None) -> StoryReport:
+def generate_season_stories(year: int, *, force: bool = False, workers: int = STORY_WORKERS, max_new: int | None = None, deadline: float | None = None,
+                            rounds: list[int] | None = None) -> StoryReport:
+    """Write missing/changed stories. `rounds` limits it to those rounds (the pilot set); season arcs
+    are written only for a full-season run."""
     report = StoryReport()
     _get_client()  # fail fast (NarrativeStopError) when no credentials are configured
     budget = _Budget(max_new, deadline)
@@ -264,8 +273,11 @@ def generate_season_stories(year: int, *, force: bool = False, workers: int = ST
         season = db.scalar(select(Season).where(Season.year == year))
         if season is None:
             raise RuntimeError(f"season {year} not in DB")
-        sessions = [(s.id, s.event_id, s.session_type, session_driver_ids(db, s)) for s in processed_sessions(db, season.id)]
-        pairs = {sid: teammate_pairs(db, eid, dids) for sid, eid, stype, dids in sessions if stype in COMPARISON_SESSION_TYPES}
+        from .narratives.compare import comparison_pairs
+
+        sessions = [(s.id, s.event_id, s.session_type, session_driver_ids(db, s)) for s in processed_sessions(db, season.id)
+                    if not rounds or db.get(Event, s.event_id).round in rounds]
+        pairs = {sid: comparison_pairs(db, sid, dids) for sid, eid, stype, dids in sessions if stype in COMPARISON_SESSION_TYPES}
         season_id = season.id
         from .ingest.entries import usual_teams
 
@@ -296,6 +308,9 @@ def generate_season_stories(year: int, *, force: bool = False, workers: int = ST
         _run_jobs(driver_plans(event_sessions), report, budget, workers)
         _run_jobs(weekend_plans(eid, event_sessions), report, budget, workers)
 
+    if rounds:
+        return report
+
     # 3) season "story so far" for every driver and team with results
     def season_plans():
         with db_session() as db:
@@ -321,6 +336,7 @@ def run_pipeline(
     max_new_stories: int | None = None,
     time_budget_min: float | None = None,
     workers: int = STORY_WORKERS,
+    story_rounds: list[int] | None = None,
 ) -> StoryReport | None:
     from .ingest.season import ingest_full_season
 
@@ -342,11 +358,15 @@ def run_pipeline(
     if not stories:
         return None
     try:
-        report = generate_season_stories(year, force=force_stories, workers=workers, max_new=max_new_stories, deadline=deadline)
+        report = generate_season_stories(year, force=force_stories, workers=workers, max_new=max_new_stories, deadline=deadline, rounds=story_rounds)
     except NarrativeStopError as exc:
         log.error("AI stories stopped: %s", exc)
         if os.environ.get("GITHUB_ACTIONS"):
             print(f"::error title=AI stories stopped::{exc}", flush=True)  # shows on the run summary
         return None
-    log.info("stories: written=%d up_to_date=%d failed=%d not_attempted=%d", report.written, report.up_to_date, report.failed, report.skipped)
+    log.info("stories: written=%d up_to_date=%d failed=%d not_attempted=%d claude_calls=%d templates=%d", report.written, report.up_to_date, report.failed, report.skipped, report.attempts, report.templates)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):  # LLM usage, for PROGRESS.md and cost tracking
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+            fh.write(f"### Stories\n\nwritten {report.written} · up to date {report.up_to_date} · failed {report.failed} · not attempted {report.skipped} · "
+                     f"Claude calls {report.attempts} · published as fact-sheet templates {report.templates}\n")
     return report

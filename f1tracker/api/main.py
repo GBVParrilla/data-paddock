@@ -41,13 +41,14 @@ from ..models import (
     PitStop,
     PivotalMoment,
     RaceControl,
+    Result,
     Season,
     Session,
     SessionIngestionState,
 )
 from ..narratives.compare import build_comparison, plan_comparison_narrative
 from ..narratives.driver_session import plan_driver_session_narrative
-from ..narratives.edits import present_comparison, present_driver_session, present_season_arc, present_weekend_arc, sync_if_changed
+from ..narratives.edits import present_comparison, present_driver_session, present_season_arc, present_weekend_arc, sync_if_changed, template_driver_session
 from ..narratives.llm import NarrativeGenerationError
 from ..narratives.season_arc import plan_season_arc
 from ..narratives.weekend_arc import plan_weekend_arc
@@ -250,6 +251,9 @@ def session_headline(session_id: int, db: OrmSession = Depends(get_db)) -> dict:
     elif s.session_type in RACE_LIKE:
         rows = db.scalars(select(HeadlineRace).where(HeadlineRace.session_id == session_id)).all()
         rows = [_row(r) for r in sorted(rows, key=lambda r: r.classification_order or 999)]
+        gaps = {r.driver_id: r.gap_to_leader_ms for r in db.scalars(select(Result).where(Result.session_id == session_id)).all()}
+        for r in rows:  # a time gap only on the lead lap; lapped cars show laps down instead
+            r["gap_to_winner_ms"] = gaps.get(r["driver_id"]) if r["status_code"] == "FIN" else None
         out["race"] = rows
         out["counts"] = race_counts(rows)
     else:
@@ -294,7 +298,7 @@ def driver_narrative(session_id: int, driver_id: int, force: bool = False, db: O
     _session_or_404(db, session_id)
     _driver_or_404(db, driver_id)
     n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, driver_id, force=force)
-    return present_driver_session(db, n)
+    return present_driver_session(db, n) if n is not None else template_driver_session(db, session_id, driver_id)
 
 
 @app.get("/events/{event_id}/drivers/{driver_id}/weekend-arc")
@@ -339,14 +343,16 @@ def race_control(session_id: int, db: OrmSession = Depends(get_db)) -> dict:
 
 @app.get("/sessions/{session_id}/chart-annotations")
 def chart_annotations(session_id: int, db: OrmSession = Depends(get_db)) -> list[dict]:
-    _session_or_404(db, session_id)
-    drivers = _driver_map(db)
+    """Key moments placed on the lap axis (neutralisations carry their end lap for shading)."""
+    s = _session_or_404(db, session_id)
+    drivers = event_drivers(db, s.event_id)
+    short = {"safety_car": "SC", "vsc": "VSC", "red_flag": "Red flag", "dnf": "out", "dns": "DNS", "penalty": "penalty", "lead_change": "leads", "undercut": "undercut", "overcut": "overcut", "slow_stop": "slow stop", "pit_cycle": "stops", "incident": "incident", "fastest_lap": "fastest lap"}
     out = []
     for m in db.scalars(select(PivotalMoment).where(PivotalMoment.session_id == session_id).order_by(PivotalMoment.lap_number)).all():
         code = drivers.get(m.driver_id, {}).get("code") if m.driver_id else None
-        sc_label = "Red flag" if m.description.startswith("Red flag") else "VSC" if "Virtual" in m.description else "Safety car"
-        label = {"safety_car": sc_label, "pit_stop": f"{code or ''} pit".strip(), "position_swing": f"{code or ''} {'+' if 'gained' in m.description else '-'}".strip(), "penalty": f"{code or ''} penalty".strip(), "fastest_lap": f"{code or ''} fastest lap".strip()}.get(m.moment_type, m.moment_type)
-        out.append({"lap_number": m.lap_number, "driver_id": m.driver_id, "label": label, "moment_type": m.moment_type, "description": m.description, "magnitude_score": m.magnitude_score})
+        kind = short.get(m.moment_type, m.moment_type.replace("_", " "))
+        label = kind if m.moment_type in ("safety_car", "vsc", "red_flag") else f"{code or ''} {kind}".strip()
+        out.append({"lap_number": m.lap_number, "end_lap": m.end_lap, "driver_id": m.driver_id, "label": label, "moment_type": m.moment_type, "description": m.headline or m.description, "magnitude_score": m.magnitude_score})
     return out
 
 
@@ -358,7 +364,7 @@ def midfield_spotlight(session_id: int, generate: bool = True, db: OrmSession = 
         raise HTTPException(404, "no midfield story could be identified for this session")
     if generate:
         n = _narrative_errors(_stored_or_generate, db, plan_driver_session_narrative, session_id, story["driver_id"])
-        story["narrative"] = present_driver_session(db, n)
+        story["narrative"] = present_driver_session(db, n) if n is not None else template_driver_session(db, session_id, story["driver_id"])
     return story
 
 

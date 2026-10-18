@@ -150,10 +150,10 @@ def top_teams(db: OrmSession, session: Session) -> set[str]:
 
     event = db.get(Event, session.event_id)
     _, teams = championship_before(db, event)
-    if len(teams) < 2:  # season opener: use this session's own top 3 as the "expected" front
+    if len(teams) < 2:  # season opener: the teams in this session's top six are the "expected" front
         drivers = _drivers(db, event.id)
         for model, col in ((HeadlineRace, HeadlineRace.finish_position), (HeadlineQualifying, HeadlineQualifying.position), (HeadlinePractice, HeadlinePractice.rank)):
-            for r in db.scalars(select(model).where(model.session_id == session.id, col <= 3)).all():
+            for r in db.scalars(select(model).where(model.session_id == session.id, col <= 6)).all():
                 d = drivers.get(r.driver_id)
                 if d and d.team:
                     teams.add(d.team)

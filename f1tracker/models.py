@@ -327,11 +327,18 @@ class DriverSessionNarrative(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False, index=True)
     driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), nullable=False)
     session_type: Mapped[str] = mapped_column(String(4), nullable=False)
-    narrative_text: Mapped[str] = mapped_column(Text, nullable=False)
-    strategy_analysis_text: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative_text: Mapped[str] = mapped_column(Text, nullable=False)  # the story (data-curious fan)
+    strategy_analysis_text: Mapped[str] = mapped_column(Text, nullable=False)  # the analysis (interpretation)
     generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     model_used: Mapped[str] = mapped_column(String(60), nullable=False)
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    headline: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)  # new-fan version, no lap times
+    key_numbers_json: Mapped[str | None] = mapped_column(Text)  # [{label, value}]
+    glossary_json: Mapped[str | None] = mapped_column(Text)  # glossary keys used
+    is_template: Mapped[bool | None] = mapped_column(Boolean)  # written by code from the facts, not by Claude
+    attempts: Mapped[int | None] = mapped_column(Integer)
+    rejected_json: Mapped[str | None] = mapped_column(Text)  # why the last attempt was rejected (fallbacks)
 
 
 class DriverWeekendArc(Base):
