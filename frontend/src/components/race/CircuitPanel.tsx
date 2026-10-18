@@ -70,7 +70,7 @@ export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor,
               {mapFor ? (
                 <>
                   <div className="text-[16px] font-semibold num mt-1">{gap === undefined ? '–' : gap === 0 ? 'Fastest' : `+${fmtMs(gap)}s`}</div>
-                  <div className="text-[12px] t3 mt-0.5 truncate">{rank ? `${nth(rank)} of ${s.ranked.length} · to the session best` : 'No time'}</div>
+                  <div className="text-[12px] t3 mt-0.5 truncate">{rank ? `${nth(rank)} of ${s.ranked.length} who set a time` : 'No time'}</div>
                 </>
               ) : (
                 <>

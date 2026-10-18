@@ -44,7 +44,7 @@ def test_classification_order(sid):
 def test_position_chart_covers_race_distance(sid):
     """#12: the position chart ends on the winner's final lap."""
     h = load(f"sessions/{sid}/headline")
-    d = load(f"sessions/{sid}/positions") or load(f"sessions/{sid}/detail")
+    d = load(f"sessions/{sid}/positions") or load(f"sessions/{sid}/detail")  # split export, or the live API shape
     winner = next(r for r in h["race"] if r.get("finish_position") == 1)
     distance = winner["laps_completed"]
     laps = [p["lap_number"] for p in d["position_by_lap"]]

@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, eventApi, type Driver, type SessionRow, type SessionType } from '../api/client'
 import { Boundary, NotFound } from '../components/Boundary'
 import { Classification } from '../components/Classification'
-import { CompareView } from '../components/CompareView'
 import { DeepDive } from '../components/DeepDive'
 import { DriverStory } from '../components/DriverStory'
-import { PositionChart } from '../components/PositionChart'
+import { WhenVisible } from '../components/WhenVisible'
 import { BeyondPodium } from '../components/race/BeyondPodium'
 import { CircuitPanel, useSectorStats } from '../components/race/CircuitPanel'
 import { KeyMoments } from '../components/race/KeyMoments'
@@ -17,8 +16,14 @@ import { isRaceLike, SESSION_ORDER, SESSION_SHORT, shortDate } from '../lib/f1'
 import { slotColors } from '../lib/teamColors'
 import { useStore } from '../state/store'
 
+// the chart library is loaded only when the position chart scrolls into view
+const PositionChart = lazy(() => import('../components/PositionChart').then((m) => ({ default: m.PositionChart })))
+const CompareView = lazy(() => import('../components/CompareView').then((m) => ({ default: m.CompareView })))
+
 export function RaceWeekend() {
-  const eventId = Number(useParams().eventId)
+  const params = useParams()
+  const eventId = Number(params.eventId)
+  const driverRef = params.driverRef
   const [search] = useSearchParams()
   const { sessionId, driverIds, setEvent, setSession, toggleDriver, clearDrivers } = useStore()
   const [mapDriver, setMapDriver] = useState(0)
@@ -50,6 +55,16 @@ export function RaceWeekend() {
   const anns = useFetch((s) => api.chartAnnotations(sessionId!, s), [sessionId, ready], ready)
   const spot = useFetch((s) => api.midfieldSpotlight(sessionId!, false, s), [sessionId, ready], ready)
   const moments = useFetch((s) => api.pivotalMoments(sessionId!, s), [sessionId, ready], ready)
+
+  // /race/:id/driver/:ref (the shareable link for one driver's race): select that driver in the race
+  useEffect(() => {
+    if (!driverRef || !headline.data) return
+    const race = sessions.find((s) => s.session_type === 'R' && s.ingestion.transforms)
+    if (race && sessionId !== race.id) { setSession(race.id); return }
+    const match = Object.values(headline.data.drivers).find((d) => d.driver_ref === driverRef)
+    if (match && !driverIds.includes(match.id)) { clearDrivers(); toggleDriver(match.id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverRef, headline.data, sessions])
 
   // drop selected drivers who didn't take part in this session
   useEffect(() => {
@@ -88,7 +103,7 @@ export function RaceWeekend() {
         </div>
         <div className="seg max-w-full overflow-x-auto" role="tablist" aria-label="Session">
           {sessions.map((s) => (
-            <button key={s.id} role="tab" aria-pressed={s.id === sessionId} aria-selected={s.id === sessionId} disabled={!s.ingestion.transforms} onClick={() => setSession(s.id)}>
+            <button key={s.id} role="tab" aria-selected={s.id === sessionId} disabled={!s.ingestion.transforms} onClick={() => setSession(s.id)}>
               {SESSION_SHORT[s.session_type as SessionType]}
             </button>
           ))}
@@ -102,13 +117,13 @@ export function RaceWeekend() {
         <Boundary label="The session summary">
           {headline.data && moments.data
             ? <div className="mb-4"><SessionSummary headline={headline.data} moments={moments.data} spot={spot.data} sessionType={session.session_type} /></div>
-            : <div className="skeleton h-36 mb-4" />}
+            : <div className="skeleton h-[172px] mb-4" />}
         </Boundary>
       )}
 
       {ready && (
         <div className="grid lg:grid-cols-12 gap-4 items-stretch">
-          <section className="panel lg:col-span-5 flex flex-col" aria-label="Classification">
+          <section className="panel lg:col-span-5 flex flex-col min-w-0" aria-label="Classification">
             <div className="panel-head pb-2">
               <h2 className="h2">Classification</h2>
               {selected.length > 0 ? <button className="btn-ghost text-[12px]" onClick={clearDrivers}>Clear selection</button> : <span className="label">Pick up to two drivers</span>}
@@ -120,7 +135,7 @@ export function RaceWeekend() {
             </div>
           </section>
 
-          <div className="lg:col-span-7 flex flex-col gap-4">
+          <div className="lg:col-span-7 flex flex-col gap-4 min-w-0">
             <Boundary label="The circuit map">
               {headline.data
                 ? <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} selected={selected} mapIdx={mapIdx} onMapIdx={setMapDriver} turnDeltas={turnDeltas.data} />
@@ -146,7 +161,9 @@ export function RaceWeekend() {
           <div className="panel-body pt-2">
             <Boundary label="The position chart">
               {detail.data && headline.data
-                ? <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={driverIds} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={toggleDriver} />
+                ? <WhenVisible minHeight={360}><Suspense fallback={<div className="skeleton h-[360px]" />}>
+                    <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={driverIds} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={toggleDriver} />
+                  </Suspense></WhenVisible>
                 : <div className="skeleton h-[420px]" />}
             </Boundary>
           </div>
@@ -155,7 +172,7 @@ export function RaceWeekend() {
 
       {ready && sessionId !== null && (
         <div className="mt-4 space-y-4">
-          {selected.length === 2 && headline.data && <Boundary label="The comparison"><CompareView eventId={eventId} sessionId={sessionId} headline={headline.data} a={selected[0]} b={selected[1]} colors={colors} /></Boundary>}
+          {selected.length === 2 && headline.data && <Boundary label="The comparison"><Suspense fallback={<div className="panel skeleton h-64" />}><CompareView eventId={eventId} sessionId={sessionId} headline={headline.data} a={selected[0]} b={selected[1]} colors={colors} /></Suspense></Boundary>}
           {selected.map((d, i) => <Boundary key={d.id} label={`${d.name}'s story`}><DriverStory eventId={eventId} sessionId={sessionId} sessions={sessions} driver={d} color={colors[i]} onSession={setSession} /></Boundary>)}
           {detail.data && headline.data && session && <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} /></Boundary>}
         </div>

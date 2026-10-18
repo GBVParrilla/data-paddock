@@ -21,9 +21,10 @@ export:        ## write the static JSON the site reads
 dev:           ## API on :8000 + Vite dev server on :5173
 	$(PY) scripts/serve.py & cd frontend && npm run dev
 
-build:         ## production build of the static site, with exported data
+build:         ## production build of the static site, with exported data, page shells and preview images
 	cd frontend && VITE_STATIC=1 VITE_BASE=$(BASE) npm run build
 	$(MAKE) export
+	cd frontend && node scripts/prerender.mjs dist
 
 preview:       ## serve the production build at http://127.0.0.1:4173$(BASE)
 	cd frontend && npx vite preview --base $(BASE) --port 4173 --strictPort

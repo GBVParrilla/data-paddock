@@ -61,6 +61,29 @@ def _try(write: _Writer, rel: str, fn, *args, **kwargs) -> None:
         log.debug("skip %s: %s", rel, exc)
 
 
+def _best_sectors(rows: list[dict]) -> list[dict]:
+    """Each driver's best time per sector (all the site draws from the per-lap sector table)."""
+    best: dict[tuple[int, int], int] = {}
+    for r in rows:
+        v = r.get("driver_sector_ms")
+        if v is None:
+            continue
+        k = (r["driver_id"], r["sector"])
+        if k not in best or v < best[k]:
+            best[k] = v
+    return [{"driver_id": d, "sector": sec, "best_ms": v} for (d, sec), v in sorted(best.items())]
+
+
+def _outline_preview(outline: TrackOutline) -> dict:
+    """A light outline for thumbnails: about 120 points, integers."""
+    pts = json.loads(outline.points_json)
+    step = max(1, len(pts) // 120)
+    keep = pts[::step]
+    if keep[-1] != pts[-1]:
+        keep.append(pts[-1])
+    return {"points": [[round(x), round(y)] for x, y in keep]}
+
+
 def export_site_data(db: OrmSession, out: Path) -> _Writer:
     sync_story_edits(db)
     if out.exists():
@@ -71,7 +94,11 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
     write("drivers", api.list_drivers(db=db))
 
     for season in db.scalars(select(Season)).all():
-        write(f"seasons/{season.year}/events", api.season_events(season.year, db=db))
+        events = api.season_events(season.year, db=db)
+        for e in events:  # thumbnails ship with the event list instead of 20+ outline requests
+            o = db.get(TrackOutline, e["id"])
+            e["outline_preview"] = _outline_preview(o) if o is not None else None
+        write(f"seasons/{season.year}/events", events)
         standings = api.season_standings(season.year, db=db)
         write(f"seasons/{season.year}/standings", standings)
         stored = {(a.subject_type, a.subject_id): a for a in db.scalars(select(SeasonArc).where(SeasonArc.season_id == season.id)).all()}
@@ -97,7 +124,17 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
     for s in db.scalars(ready).all():
         base = f"sessions/{s.id}"
         write(f"{base}/headline", api.session_headline(s.id, db=db))
-        write(f"{base}/detail", api.session_detail(s.id, driver_id=None, db=db))
+        # detail split per view so a page loads only what it draws (REVIEW #25); /detail stays for the live API
+        detail = api.session_detail(s.id, driver_id=None, db=db)
+        strip = lambda rows, keep: [{k: r[k] for k in keep} for r in rows]  # noqa: E731
+        if s.session_type in ("R", "S"):
+            write(f"{base}/positions", {"position_by_lap": strip(detail["position_by_lap"], ("driver_id", "lap_number", "position"))})
+        write(f"{base}/stints", {
+            "stint_timeline": strip(detail["stint_timeline"], ("driver_id", "stint_number", "compound", "lap_start", "lap_end")),
+            "pit_stops": strip(detail["pit_stops"], ("driver_id", "lap_number", "duration_ms", "lane_duration_ms")),
+        })
+        write(f"{base}/sectors", {"best": _best_sectors(detail["sector_deltas"])})
+        write(f"{base}/pace", {"long_run_pace": strip(detail["long_run_pace"], ("driver_id", "compound", "avg_lap_time_ms", "lap_count"))})
         write(f"{base}/pivotal-moments", api.pivotal_moments(s.id, db=db))
         write(f"{base}/chart-annotations", api.chart_annotations(s.id, db=db))
         write(f"{base}/race-control", api.race_control(s.id, db=db))

@@ -38,8 +38,8 @@ export function SessionSummary({ headline, moments, spot, sessionType }: { headl
     const c = headline.counts
     if (c) chips.push({ label: <><Term k="DNF">DNF</Term> · <Term k="DNS">DNS</Term></>, value: `${c.dnf} · ${c.dns}` })
     const neutral = moments.filter((m) => NEUTRAL.has(m.moment_type))
-    const label = neutral.length ? neutral.map((m) => (m.moment_type === 'vsc' ? 'VSC' : m.moment_type === 'safety_car' ? 'SC' : 'Red')).join(' · ') : 'None'
-    chips.push({ label: <><Term k="SC">Safety car</Term> periods</>, value: neutral.length ? label : 'None' })
+    const label = neutral.map((m) => (m.moment_type === 'vsc' ? 'VSC' : m.moment_type === 'safety_car' ? 'SC' : 'Red')).join(' · ')
+    chips.push({ label: <><Term k="SC">Safety car</Term> periods</>, value: neutral.length ? label : '0' })
   } else if (isQualiLike(sessionType) && headline.qualifying) {
     const q = headline.qualifying.filter((r) => r.position).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
     const pole = q[0]

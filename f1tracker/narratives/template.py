@@ -40,9 +40,10 @@ def _sectors(sheet: dict) -> str | None:
     s = sheet.get("sectors") or {}
     if not s:
         return None
-    parts = [f"{_ord(v['rank'])} of {v['of']} in sector {k[-1]}" for k, v in s.items()]
+    parts = [f"{_ord(v['rank'])} in sector {k[-1]}" for k, v in s.items()]
     worst = max(s.items(), key=lambda kv: kv[1]["rank"])
-    return f"His best sectors ranked {', '.join(parts[:-1])} and {parts[-1]}, so sector {worst[0][-1]} ({worst[1]['gap_to_session_best']} to the session best) was where he lost most."
+    n = max(v["of"] for v in s.values())
+    return f"Of the {n} drivers who set sector times, his best ranked {', '.join(parts[:-1])} and {parts[-1]}, so sector {worst[0][-1]} ({worst[1]['gap_to_session_best']} to the session best) was where he lost most."
 
 
 def _rivals(sheet: dict) -> str | None:

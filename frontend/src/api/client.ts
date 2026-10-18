@@ -58,6 +58,7 @@ export interface Event {
   event_date: string | null; has_sprint: boolean; openf1_meeting_key: number | null; season_year: number
   lat: number | null; lon: number | null
   winner?: Driver | null; podium?: Driver[]; completed?: boolean
+  outline_preview?: { points: [number, number][] } | null
 }
 export type RaceStatus = 'FIN' | 'LAP' | 'DNF' | 'NC' | 'DNS' | 'DSQ'
 export interface RoundResult { position: number | null; status: RaceStatus | null; team: string | null }
@@ -168,7 +169,8 @@ export const api = {
   drivers: (s?: AbortSignal) => get<Driver[]>('/drivers', s),
   trackOutline: (eventId: number, s?: AbortSignal) => get<TrackOutline>(`/events/${eventId}/track-outline`, s),
   headline: (sessionId: number, s?: AbortSignal) => get<Headline>(`/sessions/${sessionId}/headline`, s),
-  detail: (sessionId: number, driverId?: number, s?: AbortSignal) => get<Detail>(`/sessions/${sessionId}/detail${driverId ? `?driver_id=${driverId}` : ''}`, s, `sessions/${sessionId}/detail`),
+  detail: (sessionId: number, driverId?: number, s?: AbortSignal) =>
+    STATIC ? staticDetail(sessionId, s) : get<Detail>(`/sessions/${sessionId}/detail${driverId ? `?driver_id=${driverId}` : ''}`, s),
   narrative: (sessionId: number, driverId: number, s?: AbortSignal) =>
     get<Narrative>(`/sessions/${sessionId}/drivers/${driverId}/narrative`, s, undefined, STORY_NOT_WRITTEN),
   weekendArc: (eventId: number, driverId: number, s?: AbortSignal) =>
@@ -196,11 +198,34 @@ export function slug(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
+/** Static mode: the detail view assembled from the small per-view files the exporter writes. */
+async function staticDetail(sessionId: number, s?: AbortSignal): Promise<Detail> {
+  const opt = <T,>(p: Promise<T>, empty: T) => p.catch((e) => { if (e instanceof ApiError) return empty; throw e })
+  const [pos, stints, sectors, pace] = await Promise.all([
+    opt(get<{ position_by_lap: PositionByLap[] }>('', s, `sessions/${sessionId}/positions`), { position_by_lap: [] }),
+    get<{ stint_timeline: StintRow[]; pit_stops: PitStopRow[] }>('', s, `sessions/${sessionId}/stints`),
+    get<{ best: { driver_id: number; sector: 1 | 2 | 3; best_ms: number }[] }>('', s, `sessions/${sessionId}/sectors`),
+    get<{ long_run_pace: Detail['long_run_pace'] }>('', s, `sessions/${sessionId}/pace`),
+  ])
+  const sessionBest = new Map<number, number>()
+  for (const b of sectors.best) sessionBest.set(b.sector, Math.min(sessionBest.get(b.sector) ?? Infinity, b.best_ms))
+  return {
+    long_run_pace: pace.long_run_pace,
+    qualifying_segments: [],
+    stint_timeline: stints.stint_timeline,
+    degradation: [],
+    position_by_lap: pos.position_by_lap,
+    // each driver's best per sector is all the site draws from the sector table
+    sector_deltas: sectors.best.map((b) => ({ session_id: sessionId, driver_id: b.driver_id, lap_number: 0, sector: b.sector, driver_sector_ms: b.best_ms, session_best_sector_ms: sessionBest.get(b.sector)!, delta_ms: b.best_ms - sessionBest.get(b.sector)! })),
+    pit_stops: stints.pit_stops,
+  }
+}
+
 /** Static mode: the API's /compare response rebuilt from exported per-session files (any pair works). */
 async function staticCompare(sessionId: number, a: number, b: number, s?: AbortSignal): Promise<Comparison> {
   const [headline, detail, laps, stories] = await Promise.all([
     get<Headline>(`/sessions/${sessionId}/headline`, s),
-    get<Detail>(`/sessions/${sessionId}/detail`, s),
+    staticDetail(sessionId, s),
     get<Record<string, [number, number][]>>(`/sessions/${sessionId}/lap-times`, s),
     get<Record<string, ComparisonNarrative>>(`/sessions/${sessionId}/comparisons`, s),
   ])

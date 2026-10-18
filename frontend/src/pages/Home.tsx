@@ -1,27 +1,14 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Driver, type Event } from '../api/client'
+import { api, type Event } from '../api/client'
+import { RaceCard } from '../components/RaceCard'
 import { TrackMap } from '../components/TrackMap'
+import { useTitle } from '../hooks/useTitle'
 import { useFetch } from '../hooks/useFetch'
 import { shortDate } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
 import { useStore } from '../state/store'
 
-const short = (name: string) => name.replace(' Grand Prix', '')
-
-function PodiumChips({ podium }: { podium: Driver[] }) {
-  return (
-    <div className="flex items-center gap-3">
-      {podium.map((d, i) => (
-        <span key={d.id} className="flex items-center gap-1.5 text-[12.5px]">
-          <span className="t3 num">{i + 1}</span>
-          <span className="swatch h-3.5" style={{ background: teamColor(d.team) }} />
-          <span className={i === 0 ? 'font-semibold' : 't2 font-medium'}>{d.code}</span>
-        </span>
-      ))}
-    </div>
-  )
-}
 
 /** The most recent race, given the room it deserves: map in the winner's colours, podium, midfield story. */
 function LatestRace({ event }: { event: Event }) {
@@ -35,7 +22,7 @@ function LatestRace({ event }: { event: Event }) {
     <section className="panel overflow-hidden lg:col-span-8 grid md:grid-cols-[1.05fr_1fr]" aria-label="Latest race">
       <div className="p-6 md:p-8 flex flex-col">
         <div className="kicker">Latest race · Round {event.round}</div>
-        <h2 className="h-feature mt-3">{short(event.name)}</h2>
+        <h2 className="h-feature mt-3">{event.name}</h2>
         <div className="t2 mt-2 text-[13px]">{event.circuit_name} · {shortDate(event.event_date)}</div>
 
         <ol className="mt-7 space-y-2.5">
@@ -97,27 +84,6 @@ function Championship({ year }: { year: number }) {
   )
 }
 
-function RaceCard({ event }: { event: Event }) {
-  const outline = useFetch((s) => api.trackOutline(event.id, s), [event.id])
-  const color = event.winner ? teamColor(event.winner.team) : 'var(--text-3)'
-  return (
-    <Link to={`/race/${event.id}`} className="panel lift flex flex-col p-4" aria-label={`${event.name}, round ${event.round}`}>
-      <div className="flex items-center justify-between label">
-        <span className="num">R{String(event.round).padStart(2, '0')}{event.has_sprint ? ' · Sprint' : ''}</span>
-        <span>{shortDate(event.event_date)}</span>
-      </div>
-      <div className="h-32 my-4 flex items-center justify-center">
-        {outline.data ? <TrackMap outline={outline.data} stroke={13} plainColor={color} className="w-full h-full" /> : <span className="label">{outline.loading ? '' : 'Map pending'}</span>}
-      </div>
-      <div className="display font-bold text-[17px] leading-tight">{short(event.name)}</div>
-      <div className="label mt-0.5 truncate">{event.circuit_name}</div>
-      <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--line)' }}>
-        {event.podium?.length ? <PodiumChips podium={event.podium} /> : <span className="label">Weekend in progress</span>}
-      </div>
-    </Link>
-  )
-}
-
 export function Home() {
   const { year, setYear } = useStore()
   const seasons = useFetch((s) => api.seasons(s), [])
@@ -125,6 +91,7 @@ export function Home() {
     if (year === null && seasons.data?.length) setYear(seasons.data[0].year)
   }, [seasons.data, year, setYear])
   const events = useFetch((s) => api.events(year!, s), [year], year !== null)
+  useTitle(year ? `${year} season` : null)
   const all = events.data ?? []
   const started = all.filter((e) => e.completed || e.podium?.length).reverse()
   const latest = all.filter((e) => e.completed).at(-1)
@@ -161,7 +128,7 @@ export function Home() {
             {upcoming.map((e) => (
               <Link key={e.id} to={`/race/${e.id}`} className="grid grid-cols-[3rem_1fr_auto] sm:grid-cols-[3rem_14rem_1fr_auto] items-center gap-4 px-5 h-12 hover:bg-[var(--hover)] text-[13px]" style={{ borderColor: 'var(--line)' }}>
                 <span className="t3 num">R{String(e.round).padStart(2, '0')}</span>
-                <span className="font-medium">{short(e.name)}{e.has_sprint ? <span className="t3 font-normal"> · Sprint</span> : ''}</span>
+                <span className="font-medium">{e.name}{e.has_sprint ? <span className="t3 font-normal"> · Sprint</span> : ''}</span>
                 <span className="t3 truncate hidden sm:block">{e.circuit_name}</span>
                 <span className="t2 num">{shortDate(e.event_date)}</span>
               </Link>

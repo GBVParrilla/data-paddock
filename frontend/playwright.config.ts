@@ -3,7 +3,8 @@ import { defineConfig, devices } from '@playwright/test'
 // Crawls the production build (make build) served by `vite preview`, or any deployed copy via
 // E2E_BASE_URL (e.g. the live site). Two projects: desktop and a 375px phone.
 const external = process.env.E2E_BASE_URL
-const baseURL = external ?? 'http://127.0.0.1:4173/data-paddock/'
+const base = process.env.VITE_BASE ?? '/data-paddock/'
+const baseURL = external ?? `http://127.0.0.1:4173${base}`
 
 export default defineConfig({
   testDir: 'e2e',
@@ -26,7 +27,7 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 375, height: 812 } } },
   ],
   webServer: external ? undefined : {
-    command: 'npx vite preview --base /data-paddock/ --port 4173 --strictPort',
+    command: `npx vite preview --base ${base} --port 4173 --strictPort`,
     url: baseURL,
     reuseExistingServer: true,
   },

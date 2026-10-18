@@ -130,7 +130,7 @@ def _sector_ranks(db: OrmSession, session_id: int, driver_id: int) -> dict[str, 
         idx = next((i for i, (_, d) in enumerate(ranked) if d == driver_id), None)
         if idx is None:
             continue
-        out[f"sector_{sec}"] = {"best": t(ranked[idx][0]), "gap_to_session_best": gap(ranked[idx][0] - ranked[0][0]), "rank": idx + 1, "of": len(ranked)}
+        out[f"sector_{sec}"] = {"best": t(ranked[idx][0]), "gap_to_session_best": gap(ranked[idx][0] - ranked[0][0]), "rank": idx + 1, "of": len(ranked), "of_means": "drivers who set a time in this sector"}
     return out
 
 

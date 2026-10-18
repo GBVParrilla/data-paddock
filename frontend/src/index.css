@@ -12,7 +12,7 @@
   --line-2: #2e343c;
   --text: #e7e9ec;
   --text-2: #a0a7b1;
-  --text-3: #6d7581;
+  --text-3: #878f9a; /* 4.5:1 or better on every surface (WCAG AA) */
   --accent: #e10600;
 
   /* F1 timing convention */
@@ -79,7 +79,7 @@ button:disabled { cursor: default; }
 .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
 .seg button { padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
 .seg button:hover:not(:disabled) { color: var(--text); }
-.seg button[aria-pressed="true"] { background: var(--line-2); color: var(--text); }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--line-2); color: var(--text); }
 .seg button:disabled { color: var(--text-3); opacity: 0.5; }
 .seg.sm button { padding: 3px 9px; font-size: 12px; }
 

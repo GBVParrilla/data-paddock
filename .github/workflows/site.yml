@@ -1,7 +1,9 @@
 # Builds and publishes the static site to GitHub Pages.
 #
 #   daily (schedule)   full: fetch new sessions -> Claude writes their stories -> save DB -> publish
-#   push to main       publish-only: re-export with the latest code + story corrections (no Claude calls)
+#   push to main       publish-only: upgrade derived data if needed, re-export with the latest code + story
+#                      corrections (no Claude calls)
+#   Every mode checks the export (tests/invariants) and crawls the built site before deploying.
 #   manual (Actions tab -> "Run workflow") pick the mode, cap or force story writing
 #
 # The SQLite database lives as an asset on the "db-snapshot" release (created on first run), so the
@@ -39,6 +41,9 @@ on:
         description: "Rewrite every story even if its data is unchanged (expensive)"
         type: boolean
         default: false
+      story_rounds:
+        description: "Only write stories for these rounds, e.g. 1,12,17 (the pilot set). Blank = all"
+        required: false
 
 permissions:
   contents: write # the db-snapshot release
@@ -87,7 +92,6 @@ jobs:
           fi
 
       - name: Process data and write stories
-        if: env.MODE != 'publish-only'
         env:
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
@@ -98,11 +102,14 @@ jobs:
         run: |
           args="--year $F1_YEAR --time-budget-min 270 --max-new-stories ${{ inputs.max_new_stories || vars.MAX_NEW_STORIES || '800' }}"
           [ "$MODE" = "stories-only" ] && args="$args --no-ingest"
+          # publish-only still upgrades derived data to this code's version (no Claude calls)
+          [ "$MODE" = "publish-only" ] && args="$args --no-ingest --no-stories"
           [ "${{ inputs.force_stories }}" = "true" ] && args="$args --force-stories"
+          [ -n "${{ inputs.story_rounds }}" ] && args="$args --story-rounds ${{ inputs.story_rounds }}"
           python scripts/run_pipeline.py $args
 
       - name: Save database
-        if: always() && env.MODE != 'publish-only' && hashFiles('data/f1.db') != ''
+        if: always() && hashFiles('data/f1.db') != ''
         run: |
           python -c "import sqlite3; c = sqlite3.connect('data/f1.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.execute('VACUUM'); c.close()"
           gzip -kf data/f1.db
@@ -120,6 +127,23 @@ jobs:
 
       - name: Export data
         run: python scripts/export_static.py --out frontend/dist/data
+
+      - run: npx --prefix frontend playwright install --with-deps chromium
+
+      - name: Page shells and preview images (path routing, docs/adr/0001)
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: SITE_URL="https://${OWNER,,}.github.io/$REPO/" node frontend/scripts/prerender.mjs frontend/dist
+
+      # Nothing deploys unless the published numbers hold together and the site survives a crawl.
+      - name: Data invariants
+        run: DATA_DIR=frontend/dist/data python -m pytest -q tests/invariants
+      - name: Crawl the built site (desktop and mobile)
+        working-directory: frontend
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: npx playwright test
 
       - uses: actions/upload-pages-artifact@v3
         with:

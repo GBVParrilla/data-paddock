@@ -35,14 +35,17 @@ async function settle(page: Page) {
 
 async function check(page: Page, w: Watch, label: string) {
   await settle(page)
+  // a lazily loaded page shows a short "Loading" line first; give it time to fill, then judge it
+  await expect.poll(async () => (await page.locator('main').innerText()).trim().length, { timeout: 10_000, message: `${label}: <main> is empty` }).toBeGreaterThan(40)
   const text = await page.locator('main').innerText()
-  expect.soft(text.trim().length, `${label}: <main> is empty`).toBeGreaterThan(40)
   for (const re of FORBIDDEN) {
     const m = re.exec(text)
     const where = m ? text.slice(Math.max(0, m.index - 60), m.index + 60).replace(/\s+/g, ' ') : ''
     expect.soft(m ? `${m[0]} in "...${where}..."` : null, `${label}: leaked text`).toBeNull()
   }
   expect.soft(w.problems.splice(0), `${label}: console errors`).toEqual([])
+  const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth])
+  expect.soft(scroll, `${label}: page scrolls sideways (${scroll}px content in a ${width}px window)`).toBeLessThanOrEqual(width + 1)
 }
 
 async function home(page: Page) {
@@ -57,7 +60,9 @@ async function openRound(page: Page, round: number) {
 }
 
 async function sessionTabs(page: Page) {
-  return page.getByRole('tablist', { name: 'Session' }).locator('button:not([disabled])')
+  const tabs = page.getByRole('tablist', { name: 'Session' }).locator('button:not([disabled])')
+  await expect(tabs.first(), 'session tabs never appeared').toBeVisible() // never count an empty, still-loading list
+  return tabs
 }
 
 test.beforeEach(async ({ page }) => {
@@ -66,7 +71,7 @@ test.beforeEach(async ({ page }) => {
 
 test('every race and every session tab, via in-app links', async ({ page }) => {
   const w = watch(page)
-  await page.goto('#/')
+  await page.goto('./')
   await check(page, w, 'home')
   const cards = page.locator('section[aria-label="Results"] a')
   const n = await cards.count()
@@ -91,16 +96,18 @@ test('every race and every session tab, via in-app links', async ({ page }) => {
 for (const round of PILOT_ROUNDS) {
   test(`round ${round}: one driver, two drivers, every deep-dive tab, every session`, async ({ page }) => {
     const w = watch(page)
-    await page.goto('#/')
+    await page.goto('./')
     await openRound(page, round)
     const tabs = await sessionTabs(page)
     const count = await tabs.count()
+    expect(count, 'sessions on the pilot weekend').toBeGreaterThanOrEqual(4)
     for (let t = 0; t < count; t++) {
       const tab = (await sessionTabs(page)).nth(t)
       const name = (await tab.innerText()).trim()
       await tab.click()
       await settle(page)
       const rows = page.locator('section[aria-label="Classification"] tbody tr')
+      await expect(rows.nth(10)).toBeVisible()
       await rows.nth(9).click()
       await check(page, w, `R${round} ${name}: one driver`)
       await rows.nth(10).click()
@@ -117,7 +124,7 @@ for (const round of PILOT_ROUNDS) {
 
 test('standings: drivers, constructors and season stories', async ({ page }) => {
   const w = watch(page)
-  await page.goto('#/')
+  await page.goto('./')
   await check(page, w, 'home')
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Standings' }).click()
   await check(page, w, 'standings')
@@ -133,12 +140,27 @@ test('standings: drivers, constructors and season stories', async ({ page }) => 
 
 test('unknown race and unknown route show a way back', async ({ page }) => {
   const w = watch(page)
-  await page.goto('#/race/99999')
+  await page.goto('race/99999')
   await settle(page)
   await expect(page.locator('main')).toContainText(/not found/i)
   await expect(page.locator('main').getByRole('link', { name: /home|races/i }).first()).toBeVisible()
-  await page.goto('#/no/such/page')
+  await page.goto('no/such/page')
   await settle(page)
   await expect(page.locator('main')).toContainText(/not found/i)
   w.problems.length = 0
+})
+
+test('links shared before path routing still open the right page', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('./#/season/2026')
+  await expect(page.locator('h1')).toContainText('standings')
+  expect(new URL(page.url()).pathname).toMatch(/\/season\/2026$/)
+  await check(page, w, 'legacy hash link')
+})
+
+test('a driver\'s race has its own page', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('race/1/driver/gasly')
+  await expect(page.getByRole('region', { name: "Pierre Gasly's weekend" })).toBeVisible()
+  await check(page, w, 'driver race page')
 })
