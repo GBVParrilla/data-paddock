@@ -167,14 +167,14 @@ def quali_story(sheet: dict) -> dict[str, Any]:
         paras.append("His best times: " + ", ".join(f"{k} {v}" for k, v in times.items()) + ".")
     margins = [v for k, v in r.items() if k.endswith("_margin")]
     if margins:
-        paras.append("At the cut lines he was " + "; ".join(margins) + ".")
+        paras.append("At the cut lines he " + "; then ".join(margins) + ".")
     s = _sectors(sheet)
     if s:
         paras.append(s)
     paras += _incidents(sheet)
     analysis = " ".join(margins[-1:]).capitalize() + "." if margins else "The data gives no single deciding factor beyond his raw pace."
     if margins:
-        analysis = f"The margin that decided his session: {margins[-1]}."
+        analysis = f"What decided his session: he {margins[-1]}."
     keys = [{"label": "Position", "value": f"P{pos}" if pos else "No time"}]
     gk = next((k for k in r if k.startswith("gap_to_fastest_in_")), None)
     if gk:

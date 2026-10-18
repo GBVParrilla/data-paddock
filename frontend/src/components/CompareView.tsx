@@ -31,7 +31,9 @@ function ComputedHeadToHead({ a, b, headline, cmp }: { a: Driver; b: Driver; hea
     const together = [...pa.entries()].filter(([lap, p]) => pb.has(lap) && Math.abs((pb.get(lap) ?? 0) - p) === 1).length
     if (together) lines.push(`They ran next to each other for ${together} laps.`)
     const stops = (d: typeof cmp.driver_a) => d.stints.length - 1
-    lines.push(`${last(a)} made ${stops(cmp.driver_a)} stop${stops(cmp.driver_a) === 1 ? '' : 's'}, ${last(b)} ${stops(cmp.driver_b)}.`)
+    const sa = stops(cmp.driver_a), sb = stops(cmp.driver_b)
+    const n = (k: number) => (k === 1 ? 'once' : k === 2 ? 'twice' : `${k} times`)
+    lines.push(sa === sb ? (sa ? `Both stopped ${n(sa)}.` : 'Neither stopped.') : `${last(a)} ${sa ? `stopped ${n(sa)}` : 'did not stop'}, ${last(b)} ${sb ? n(sb) : 'not at all'}.`)
   } else {
     const rows = (headline.qualifying ?? headline.practice ?? []) as { driver_id: number; position?: number | null; rank?: number | null }[]
     const pos = (id: number) => { const r = rows.find((x) => x.driver_id === id); return r?.position ?? r?.rank ?? null }

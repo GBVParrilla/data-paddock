@@ -77,7 +77,7 @@ def weekend_template(facts: dict) -> dict:
     text = f"{facts['driver']}'s weekend: " + ", ".join(bits) + "."
     q = next((p for p in facts["sessions"] if p["session"] == "Q" and p.get("margin")), None)
     if q:
-        text += f" In qualifying he was {q['margin']}."
+        text += f" In qualifying he {q['margin']}."
     return {"arc_text": text}
 
 

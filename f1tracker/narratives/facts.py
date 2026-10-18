@@ -305,7 +305,7 @@ def build_driver_session_facts(db: OrmSession, session_id: int, driver_id: int) 
                 continue
             last_in, first_out = times[survivors - 1], times[survivors]
             if mine_t <= last_in[0]:
-                result[f"{prefix}{cut_name[1]}_margin"] = f"through by {fmt_ms(first_out[0] - mine_t)}s over the first car knocked out ({names.get(first_out[1])})"
+                result[f"{prefix}{cut_name[1]}_margin"] = f"got through by {fmt_ms(first_out[0] - mine_t)}s over the first car knocked out ({names.get(first_out[1])})"
             else:
                 result[f"{prefix}{cut_name[1]}_margin"] = f"missed out by {fmt_ms(mine_t - last_in[0])}s to the last car through ({names.get(last_in[1])})"
         sheet["result"] = result
