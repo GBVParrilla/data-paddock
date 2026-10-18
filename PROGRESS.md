@@ -47,10 +47,10 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 | 24 / 43 | Season page title | A | fixed (evidence: `useTitle` on SeasonPage; crawl asserts "· Data Paddock" titles on every page and "standings" after in-app navigation) |
 | 26 / 38 | Facts repeat across panels | A | fixed (evidence: `lib/mentions.ts`; crawl `calmRacePage` finds no fact in both the summary and key moments on any session of any race) |
 | 29 | Error reports need GitHub | owner | open (needs `VITE_REPORT_EMAIL`) |
-| 36 | No AI stories live | B | open (needs the pilot run) |
+| 36 | No AI stories live | B | in progress (pipeline ready locally; needs the owner's pilot run on the new prompt) |
 | 37 | False footer claim | A | fixed (evidence: footer line removed; one source line per page from the stories shown; crawl fails any page that says "by Claude" without a Claude-written story on it) |
 | 39 | Summary/moments miss how the race was won | A (summary) + C (engine) | C: engine fixed locally (`test_the_lead_change_that_won_the_race_and_a_lap_one_exit_are_always_kept`; on the live data R12 now lists Verstappen's lap-1 exit and Norris's lap-54 lead change). A part fixed (summary priority: deciding lead change, front-runner DNF/DNS, a stoppage that reshuffled the top five, then the biggest climb; R1 now says "Russell took the lead for good from Hamilton through the pit stops on lap 27"). R12 needs the C engine fix to emit the lap-54 change |
-| 40 | Template prose reads like a log | B | open |
+| 40 | Template prose reads like a log | B | fixed locally (rewritten templates; all 1,860 non-DNS templates pass the full fact-check including the new verdict-headline and plain-Essential rules; 15-story review below scores 3.67 for new-fan readability, target 3.5) |
 | 42 | No freshness stamp | A | fixed (evidence: `meta.json`/`/meta`; crawl asserts "Data through round N · updated D Mon" on home, every race and standings) |
 | 44 | DNS car has a tyre bar | C | fixed locally (`session_detail` drops DNS stints; invariant `test_no_tyre_stint_for_a_car_that_never_started` failed on 4 sessions before, passes after) |
 | 45 | Pts off-screen on phones | A | fixed (evidence: Grid and Stops hidden below 640px; mobile crawl asserts Pts in the viewport; a new check fails if the classification scrolls sideways at any width, which also caught a 16–40px overflow at 1024–1360px) |
@@ -76,6 +76,42 @@ Before (1360px / 375px): home 2,926 / 7,596 · races 2,309 / 6,305 · standings 
 ## Round 2: after Workstream A (measured, same build setup as "before")
 
 1360px / 375px: home 1,667 / 3,418 · races 2,309 / 6,288 · standings 1,544 / 1,976 · R1 1,925 / 3,088 · R12 1,925 / 2,955 · R17 1,925 / 3,070 · R1 Gasly 3,293 / 5,089 · R1 Gasly Expert 3,581 / 5,670. Panels before a driver is picked: 5 on every race page (was 7). Underlines: R1 4, R12 5, R17 4 (were 19, 17, 13). Crawl 18/18 (desktop and mobile), unit 44, invariants 206 + 1 skipped (turn deltas).
+
+## Round 2: Workstream B (stories), built locally
+
+What the model now gets and must return (`PROMPT_VERSION` 3):
+- **Verdict candidates computed in code** (`facts.verdict_candidates`): up to three checked conclusions per driver-session, weighted by how telling they are. Covered: how a winner won (the deciding lead change, or led every lap), a retirement, stop timing against a neutralisation, a pit cycle that swung places, a first-lap gain kept over the race, a climb, a slide (and when it happened), a teammate comparison, pole, a cut-line margin, a weak sector, long-run pace beating single-lap pace. Each has a verdict sentence and a headline of at most 12 words. Examples on the live data: R1 Russell "Russell took the lead for good on lap 27", R12 Norris "…on lap 54", R17 Verstappen "led every lap from pole", R17 Hadjar "worked his way from P22 to P10".
+- **Story shape**: headline (12), essential (90), expert (110), analysis (80), key_numbers, glossary_terms. The prompt asks for about 70% of each limit. Essential and Expert are saved in the columns the site already reads (`summary`, `narrative_text`), so the Essential/Expert switch from Workstream A shows them with no frontend change.
+- **New checks**: a headline must be a verdict (at least two words beyond result vocabulary: "P10 from P14" fails); Essential may not contain lap times or notation like "(-0.06s per lap)".
+- **Three worked examples** (`narratives/examples.py`: Russell, Gasly, Hadjar, R1), written by hand from the live fact sheets. Each passes the real fact-check against its full sheet, and `tests/test_prompts.py` checks them against their excerpts (that test caught two examples quoting numbers the excerpt didn't show).
+- **Leaner sheets for the model** (`prompt_sheet`): no rival stop laps, car numbers, weather on dry days or bookkeeping. The checker still uses the full sheet.
+- **Prompt caching** on the system prompt (rules + examples, about 2,000 tokens; Haiku 5.5 caches from 512). Cache reads and writes are now logged per call.
+- **Plain-word verdicts**: "His only stop, on lap 10, came just before the Virtual Safety Car on lap 12: unlucky timing…", "…P10 before, P11 after", "his pace held steady … allowing for the fuel he burned". The old "Stop 1 (lap 10)" and "(-0.06s per lap)" forms are gone.
+- **Weekend arcs**: the prompt asks for about 65 words. Verified: the arc limit in the code is 95 words (+15% slack), not 170; all 397 stored arcs exceed 109 words and 256 exceed 170, because they were written before the checker existed. The limit is unchanged.
+
+Templates (#40), the fallback for every story: the headline is the lead verdict; Essential gives the cause when it adds to the headline, then the result and the next finding; the analysis states the verdicts Essential didn't use. Sweep over the live data: 1,860 templates, 0 fact-check violations; longest Essential 66 words.
+
+Template review for new-fan readability (1–5), 15 stories across the pilot rounds:
+
+| Story | Score | Note |
+|---|---|---|
+| R1 R Russell | 4 | Cause then result; "took the lead for good on lap 27, from Hamilton through the pit stops" |
+| R12 R Norris | 4 | Same shape; analysis thin (a lap-40 pit battle) |
+| R17 Q Verstappen | 3 | A pole-sitter's Essential mentions the Q2 margin, which is jargon here |
+| R12 S Piastri | 3 | Correct but thin: result only |
+| R17 R Leclerc | 3 | Thin: "started and finished P2" |
+| R1 R Gasly | 4 | Result, then the unlucky VSC timing in plain words |
+| R12 R Alonso | 3 | Headline is the first lap; Essential doesn't say how he got from P15 to P9 |
+| R17 R Hadjar | 4 | Climb from P22, then the stop that cost 2 places |
+| R1 Q Gasly | 4 | The 0.280s cut-line miss, named |
+| R12 FP1 Lawson | 3 | Practice stories stay thin by nature |
+| R1 R Hadjar | 4 | "retired on lap 11 while running P5" |
+| R1 R Piastri (DNS) | 4 | Clear |
+| R17 R Stroll | 4 | Clear |
+| R12 Q Bottas | 4 | Clear |
+| R17 S Pérez | 4 | Clear |
+
+Average 3.67 (target 3.5), none below 3. Worst: R17 Q Verstappen — "Max Verstappen qualified on pole. In Q2 Max Verstappen got through by 1.145s over the first car knocked out (Nico Hülkenberg). Teammate Isack Hadjar was P22." The pilot run is what tests the AI stories against the 4.3 gate.
 
 ## Round 2: decisions made
 

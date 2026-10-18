@@ -57,7 +57,8 @@ def build_weekend_facts(db: OrmSession, event_id: int, driver_id: int) -> dict:
         if s.session_type in ("R", "S"):
             part["teammate_finish"] = (r.get("teammate") or {}).get("finish")
             part["points"] = r.get("points")
-            part["deciding_fact"] = (sheet.get("verdicts") or [None])[0]
+            # the leading verdict candidate: the same conclusion the session story leads with
+            part["deciding_fact"] = ((sheet.get("verdict_candidates") or [{}])[0].get("verdict")) or (sheet.get("verdicts") or [None])[0]
         if s.session_type in ("FP1", "FP2", "FP3") and sheet.get("long_runs"):
             ranked = [x for x in sheet["long_runs"] if x.get("rank")]
             if ranked:

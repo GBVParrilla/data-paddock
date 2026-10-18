@@ -2,7 +2,8 @@
 
 A story passes only if:
   - it is clean text (no markup, JSON, self-talk or code tokens),
-  - each section is within its word limit, and the summary has no lap times,
+  - each section is within its word limit; Essential has no lap times or raw expressions,
+  - the headline is a verdict (what the result meant or why), not only the result,
   - every number it quotes (times, gaps, positions, laps, counts) is in the fact sheet,
   - arithmetic claims ("97 points behind", "gained 4 places") match the computed values,
   - every driver it names took part in the session, and "teammate X" is the real teammate,
@@ -18,7 +19,8 @@ from dataclasses import dataclass
 
 from .facts import numbers_in
 
-LIMITS = {"headline": 12, "summary": 60, "story": 220, "analysis": 150}
+# Essential: a new fan's story, verdict first. Expert: the same story with its data (decision D5).
+LIMITS = {"headline": 12, "essential": 90, "expert": 110, "analysis": 80}
 LIMIT_SLACK = 1.15  # a sentence's worth over is tolerated; the gate is the prompt's limit + 15%
 
 LEAK = re.compile(r"</?[a-z_]+>|<br\s*/?>|```|\{\s*\"|\"\s*\}|\}\s*$|^\s*\{|BAD_FORMAT|\bnull\b|\bundefined\b|\bNaN\b|\[object|"
@@ -29,6 +31,12 @@ HEDGES = [
     "does not support a strong conclusion", "cannot be confirmed", "can't be confirmed", "it is not possible to judge", "it's not possible to judge",
     "impossible to say", "not possible to say", "speculative", "it is unclear whether", "it's unclear whether",
 ]
+# "(-0.06s per lap)", "(+1.149s)": data notation, fine for Expert, not for a new fan (REVIEW_ROUND2 #40)
+RAW = re.compile(r"\([+-]?\d|\bper lap\b|\d+ms\b")
+# what a result-only headline is made of: positions, session names, points (REVIEW_ROUND2 B2)
+RESULT_WORDS = re.compile(r"^(p\d+|\d+|from|in|for|on|of|at|the|a|an|and|to|lap|laps|point|points|one|two|qualifying|sprint|race|fp[123]|q[123]|sq[123]|"
+                          r"grid|pole|pit|lane|no|time|set|retired|did|not|start|finish|finished|started|classified|down|up|place|places|"
+                          r"his|he|after|with|top|ten|[a-z]+'s)$")
 CLIMB = re.compile(r"\b(climbed|gained|made up|moved up)\b")
 # numbers as prose writes them: P10, +0.810s, 10th, 55%, 1.2 - not identifiers like Q2, FP1, T3
 NUMBER = re.compile(r"(?<![\w.:])P?[+-]?\d+(?:\.\d+)?(?:s|%|st|nd|rd|th)?(?![\w:])")
@@ -134,7 +142,7 @@ def check_status(section: str, text: str, sheet: dict) -> list[Violation]:
         out.append(Violation(section, "he retired; he did not finish the race"))
     gained = res.get("places_gained")
     first = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0] if text.strip() else ""
-    if section in ("headline", "summary") and gained is not None and gained < 0 and CLIMB.search(first) and "place" in first:
+    if section in ("headline", "essential") and gained is not None and gained < 0 and CLIMB.search(first) and "place" in first:
         out.append(Violation(section, f"he finished {abs(gained)} places lower than he started; don't open with a climb"))
     return out
 
@@ -157,6 +165,21 @@ def check_neutralisation_logic(section: str, text: str, sheet: dict) -> list[Vio
         elif cheap and stop_rel in ("just_before", "just_after"):
             out.append(Violation(section, f"the lap-{laps[0]} stop was {stop_rel.replace('_', ' ')} the neutralisation, so it wasn't cheap"))
     return out
+
+
+def _names(sheet: dict) -> str:
+    d = sheet.get("driver") or {}
+    return " ".join(x for x in (d.get("name"), d.get("teammate"), d.get("team")) if x)
+
+
+def check_headline(text: str, sheet: dict) -> list[Violation]:
+    """A verdict says what the result meant or why it happened ("Alpine's early stop cost Gasly a place
+    he won back"), not only the result ("P10 from P14"): at least two words beyond result vocabulary."""
+    name_words = {w.lower() for w in re.findall(r"[\w'’-]+", _names(sheet))}
+    content = [w for w in re.findall(r"[\w'’-]+", text.lower()) if not RESULT_WORDS.match(w) and w not in name_words]
+    if len(content) < 2:
+        return [Violation("headline", f"\"{text}\" only states the result: make it a verdict, saying what the result meant or why it happened (one of the verdict_candidates)")]
+    return []
 
 
 def check_hedging(section: str, text: str, sheet: dict) -> list[Violation]:
@@ -198,8 +221,13 @@ def check_story(data: dict, sheet: dict, *, roster: dict[str, str], entrants: se
         out += check_neutralisation_logic(section, text, sheet)
     if limits is not None:
         return out + check_hedging("story", " ".join(str(data.get(k) or "") for k in limits), sheet)
-    if LAP_TIME.search(data.get("summary") or ""):
-        out.append(Violation("summary", "no lap times in the summary: it is for a new fan"))
+    essential = data.get("essential") or ""
+    if LAP_TIME.search(essential):
+        out.append(Violation("essential", "no lap times in essential: it is for a new fan"))
+    if RAW.search(essential):
+        out.append(Violation("essential", f"use plain words in essential, not data notation like \"{RAW.search(essential).group()}\" (that belongs in expert)"))
+    if data.get("headline") and (sheet.get("result") or {}).get("status") != "did not start":
+        out += check_headline(data["headline"], sheet)
     out += check_hedging("analysis", data.get("analysis") or "", sheet)
     if sheet.get("verdicts") and data.get("analysis") and not _uses_a_verdict(data["analysis"], sheet["verdicts"]):
         out.append(Violation("analysis", "state at least one of the computed verdicts as a conclusion"))
