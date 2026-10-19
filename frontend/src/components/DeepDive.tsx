@@ -159,12 +159,15 @@ function LongRunPace({ detail, headline, selected }: { detail: Detail; headline:
   )
 }
 
-export function DeepDive({ sessionType, sessionId, detail, headline, selected }: { sessionType: string; sessionId: number; detail: Detail; headline: Headline; selected: Driver[] }) {
+/** `turnsFor`: drivers with a turn-by-turn breakdown (static site), or null when the live API computes them on request. */
+export function DeepDive({ sessionType, sessionId, detail, headline, selected, turnsFor }: { sessionType: string; sessionId: number; detail: Detail; headline: Headline; selected: Driver[]; turnsFor?: number[] | null }) {
+  // an empty tab is worse than none (REVIEW #8 / ROUND2 #41): show it only for a driver who has a breakdown
+  const withTurns = selected.filter((d) => !turnsFor || turnsFor.includes(d.id))
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'tyres', label: 'Tyre strategy', show: detail.stint_timeline.length > 0 },
     { id: 'pace', label: 'Long-run pace', show: detail.long_run_pace.length > 0 && !isRaceLike(sessionType) },
     { id: 'sectors', label: 'Sectors', show: selected.length > 0 },
-    { id: 'turns', label: 'Turn by turn', show: selected.length > 0 },
+    { id: 'turns', label: 'Turn by turn', show: withTurns.length > 0 },
     { id: 'incidents', label: 'Race control', show: true },
   ]
   const visible = tabs.filter((t) => t.show)
@@ -173,13 +176,10 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
   if (!cur) return null
   const ids = selected.map((d) => d.id)
   return (
-    <section className="panel" aria-label="Deep dive">
+    <section aria-label="Deep dive">
       <div className="px-5 pt-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="tabs overflow-x-auto" role="tablist">
-            {visible.map((t) => <button key={t.id} role="tab" aria-selected={t.id === cur} onClick={() => setTab(t.id)}>{t.label}</button>)}
-          </div>
-          {!selected.length && <span className="label hidden md:block">Select a driver for sectors and corners</span>}
+        <div className="tabs overflow-x-auto" role="tablist">
+          {visible.map((t) => <button key={t.id} role="tab" aria-selected={t.id === cur} onClick={() => setTab(t.id)}>{t.label}</button>)}
         </div>
       </div>
       <div className="px-5 py-5">
@@ -187,7 +187,7 @@ export function DeepDive({ sessionType, sessionId, detail, headline, selected }:
         {cur === 'pace' && <LongRunPace detail={detail} headline={headline} selected={ids} />}
         {cur === 'sectors' && <div className="grid gap-6">{selected.map((d) => <Sectors key={d.id} detail={detail} headline={headline} driver={d} />)}</div>}
         {cur === 'incidents' && <IncidentTimeline sessionId={sessionId} headline={headline} selected={ids} />}
-        {cur === 'turns' && <div className={`grid gap-8 ${selected.length === 2 ? 'lg:grid-cols-2' : ''}`}>{selected.map((d) => <div key={d.id}><div className="h2 mb-2">{d.name}</div><TurnByTurn sessionId={sessionId} driver={d} headline={headline} /></div>)}</div>}
+        {cur === 'turns' && <div className={`grid gap-8 ${withTurns.length === 2 ? 'lg:grid-cols-2' : ''}`}>{withTurns.map((d) => <div key={d.id}><div className="h2 mb-2">{d.name}</div><TurnByTurn sessionId={sessionId} driver={d} headline={headline} /></div>)}</div>}
       </div>
     </section>
   )

@@ -8,6 +8,7 @@ the analysis can state conclusions instead of hedging. What the data can't suppo
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from statistics import mean
 from typing import Any
@@ -161,11 +162,21 @@ def _stop_text(v, names: dict[int, str]) -> str:
     return ", ".join(parts)
 
 
+ORDINAL_WORD = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}
+
+
+def _which_stop(n: int, total: int) -> str:
+    """'His only stop' / 'His second stop': plain words, not "Stop 2" (REVIEW_ROUND2 #40)."""
+    return "His only stop" if total == 1 else f"His {ORDINAL_WORD.get(n, f'{n}th')} stop"
+
+
 def _stop_verdicts(stops, battles, driver_id: int, names: dict[int, str]) -> tuple[list[dict], list[str]]:
     facts, verdicts = [], []
+    total = sum(1 for v in stops if v.driver_id == driver_id)
     for v in stops:
         if v.driver_id != driver_id:
             continue
+        which = _which_stop(v.stop_number, total)
         f: dict[str, Any] = {
             "stop": v.stop_number, "in_lap": v.in_lap, "from": v.compound_from, "to": v.compound_to,
             "stationary": f"{v.stationary_ms / 1000:.1f}s" if v.stationary_ms else "not published by the timing feed",
@@ -177,18 +188,17 @@ def _stop_verdicts(stops, battles, driver_id: int, names: dict[int, str]) -> tup
             s, e = v.neutralisation_laps
             f["neutralisation"] = {"relation": v.neutralisation, "kind": kind, "laps": f"{s}-{e}" if e and e != s else str(s)}
             if v.neutralisation == "during":
-                verdicts.append(f"Stop {v.stop_number} (lap {v.in_lap}) came under the {kind}: a cheap stop, because the cars he was racing were also slowed.")
+                verdicts.append(f"{which}, on lap {v.in_lap}, came under the {kind}: a cheap stop, because the cars he was racing were slowed too.")
             elif v.neutralisation == "just_before":
-                verdicts.append(f"Stop {v.stop_number} (lap {v.in_lap}) came just before the {kind} on lap {s}: unlucky timing, because anyone who waited could stop under it for less time lost.")
+                verdicts.append(f"{which}, on lap {v.in_lap}, came just before the {kind} on lap {s}: unlucky timing, because the cars that waited stopped for less.")
             elif v.neutralisation == "just_after":
-                verdicts.append(f"Stop {v.stop_number} (lap {v.in_lap}) came just after the {kind} ended on lap {e or s}: the chance of a cheaper stop under it was missed.")
-        if v.net_places is not None and v.position_before is not None:
-            if v.net_places > 0:
-                verdicts.append(f"Stop {v.stop_number} gained him {v.net_places} place{'s' if v.net_places != 1 else ''} once the cars around him had stopped too (P{v.position_before} to P{v.position_after_cycle}).")
-            elif v.net_places < 0:
-                verdicts.append(f"Stop {v.stop_number} cost him {-v.net_places} place{'s' if v.net_places != -1 else ''} once the cars around him had stopped too (P{v.position_before} to P{v.position_after_cycle}).")
+                verdicts.append(f"{which}, on lap {v.in_lap}, came just after the {kind} ended on lap {e or s}: he missed the chance of a cheaper stop.")
+        if v.net_places is not None and v.position_before is not None and v.net_places:
+            n = abs(v.net_places)
+            what = "a place" if n == 1 else f"{n} places"
+            verdicts.append(f"{which} {'gained' if v.net_places > 0 else 'cost'} him {what} once the cars around him had stopped too: P{v.position_before} before, P{v.position_after_cycle} after.")
         if v.slow:
-            verdicts.append(f"Stop {v.stop_number} was slow: " + (f"{v.stationary_ms / 1000:.1f}s stationary." if v.stationary_ms and v.stationary_ms >= 4000 else f"{v.lane_vs_median_ms / 1000:.1f}s longer in the pit lane than the typical stop."))
+            verdicts.append(f"{which} was slow: " + (f"{v.stationary_ms / 1000:.1f}s stationary." if v.stationary_ms and v.stationary_ms >= 4000 else f"{v.lane_vs_median_ms / 1000:.1f}s longer in the pit lane than a typical stop."))
         facts.append(f)
     for b in battles:
         if driver_id not in (b.attacker_id, b.defender_id) or b.under_neutralisation:
@@ -199,16 +209,135 @@ def _stop_verdicts(stops, battles, driver_id: int, names: dict[int, str]) -> tup
         what = {
             ("undercut_worked", True): f"his undercut on {names.get(other)} worked: he pitted first (lap {b.attacker_lap}) and was ahead once {names.get(other)} stopped (lap {b.defender_lap})",
             ("undercut_failed", True): f"his undercut attempt on {names.get(other)} failed: he pitted first (lap {b.attacker_lap}) but was still behind once {names.get(other)} stopped (lap {b.defender_lap})",
-            ("stayed_ahead", True): f"he pitted first (lap {b.attacker_lap}) and stayed ahead of {names.get(other)}, who stopped on lap {b.defender_lap}",
+            ("stayed_ahead", True): f"he pitted first (lap {b.attacker_lap}) and stayed ahead of {names.get(other)} through that round of stops ({names.get(other)} stopped on lap {b.defender_lap})",
             ("overcut_worked", True): f"{names.get(other)} overcut him: he pitted first (lap {b.attacker_lap}) and was behind once {names.get(other)} stopped (lap {b.defender_lap})",
             ("undercut_worked", False): f"{names.get(other)} undercut him: they pitted on lap {b.attacker_lap}, he waited until lap {b.defender_lap} and came out behind",
             ("undercut_failed", False): f"he resisted {names.get(other)}'s undercut: they pitted on lap {b.attacker_lap}, he stopped on lap {b.defender_lap} and stayed ahead",
-            ("stayed_ahead", False): f"{names.get(other)} pitted first (lap {b.attacker_lap}) and stayed ahead of him",
+            ("stayed_ahead", False): f"{names.get(other)} pitted first (lap {b.attacker_lap}) and stayed ahead of him through that round of stops",
             ("overcut_worked", False): f"his overcut on {names.get(other)} worked: he stayed out until lap {b.defender_lap} and came out ahead",
         }[(b.verdict, me_first)]
         verdicts.append(what[0].upper() + what[1:] + ("." if not what.endswith(".") else ""))
         del won
     return facts, verdicts
+
+
+def _last(name: str | None) -> str:
+    return (name or "").split(" ")[-1]
+
+
+def _places(n: int) -> str:
+    return "a place" if n == 1 else f"{n} places"
+
+
+def verdict_candidates(sheet: dict[str, Any]) -> list[dict[str, str]]:
+    """Up to three things that could be *the* story of this driver's session, most telling first.
+
+    The reasoning is done here, in code: each candidate is a checked conclusion with a headline of
+    at most 12 words that says why or what it meant, not only the result (REVIEW_ROUND2 B2-B3). The
+    model picks one and phrases it; the template uses the first.
+    """
+    stype = (sheet.get("meta") or {}).get("session_type")
+    d, r = sheet.get("driver") or {}, sheet.get("result") or {}
+    me, mate = _last(d.get("name")), _last(d.get("teammate"))
+    out: list[tuple[float, dict[str, str]]] = []
+
+    def add(kind: str, weight: float, verdict: str, headline: str) -> None:
+        out.append((weight, {"kind": kind, "verdict": verdict, "headline": headline}))
+
+    if stype in RACE_LIKE:
+        status, grid, fin = r.get("status"), r.get("grid"), r.get("finish")
+        trace = sheet.get("position_trace") or {}
+        stops = sheet.get("stops") or []
+        if fin == 1:
+            # how he won: his last move into the lead (from the key moments), or leading every lap
+            takes = [m for m in (re.match(rf"^{re.escape(d.get('name') or '')} took the lead from (.+?) (on track|through the pit stops) on lap (\d+)\.$", h)
+                                 for h in sheet.get("key_moments_involving_him") or []) if m]
+            if takes:
+                last_take = max(takes, key=lambda m: int(m.group(3)))
+                how = "" if last_take.group(2) == "on track" else " through the pit stops"
+                add("win", 12, f"He took the lead for good on lap {last_take.group(3)}, from {last_take.group(1)}{how}, and won.",
+                    f"{me} took the lead for good on lap {last_take.group(3)}")
+            elif grid == 1 and trace.get("worst") == 1:
+                add("win", 12, "He led every lap from pole.", f"{me} led every lap from pole")
+        if status in ("retired", "not classified") and not fin and r.get("retired_on_lap"):
+            at = trace.get("final")
+            where = f" while running P{at}" if at else ""
+            add("retirement", 10, f"His race ended on lap {r['retired_on_lap']}{where}.",
+                f"A lap-{r['retired_on_lap']} retirement cut short {me}'s run in P{at}" if at else f"{me}'s race was cut short on lap {r['retired_on_lap']}")
+        for f in stops:
+            rel = (f.get("neutralisation") or {}).get("relation")
+            kind = (f.get("neutralisation") or {}).get("kind", "")
+            short = {"Virtual Safety Car": "VSC", "Safety Car": "Safety Car", "red flag": "red flag"}.get(kind, kind)
+            verdict = next((v for v in sheet.get("verdicts", []) if f"lap {f['in_lap']}," in v and kind in v), None)
+            # "worked" only when the stop didn't lose him places once everyone had stopped
+            if rel and verdict and not (rel == "during" and (f.get("net_places") or 0) < 0):
+                head = {"during": f"A stop under the {short} worked for {me}",
+                        "just_before": f"Pitting just before the {short} was unlucky for {me}",
+                        "just_after": f"{me} just missed a cheap stop under the {short}"}[rel]
+                add("stop_timing", 6, verdict, head)
+                break
+        swing = max(stops, key=lambda f: abs(f.get("net_places") or 0), default=None)
+        lost_overall = (r.get("places_gained") or 0) < 0
+        # a stop that gained places doesn't lead the story of a race he finished lower than he started
+        if swing and abs(swing.get("net_places") or 0) >= 2 and not (swing["net_places"] > 0 and lost_overall):
+            n = swing["net_places"]
+            verdict = next((v for v in sheet.get("verdicts", []) if ("gained him" in v or "cost him" in v) and f"P{swing['position_before']} before" in v), None)
+            if verdict:
+                add("pit_cycle", 2 * abs(n), verdict, f"{me}'s pit stop gained him {_places(n)}" if n > 0 else f"The pit stops cost {me} {_places(-n)}")
+        lap1 = trace.get("end_of_lap_1")
+        # a strong opening lap is the story only if he kept places overall (a climb he later lost isn't)
+        if grid and lap1 and grid - lap1 >= 3 and (r.get("places_gained") or 0) >= 0:
+            add("first_lap", 1.5 * (grid - lap1), f"He gained {grid - lap1} places on the opening lap, from P{grid} to P{lap1}.", f"{me} gained {grid - lap1} places on the opening lap")
+        gained = r.get("places_gained")
+        if fin and grid and gained and gained >= 4 and not any(c["kind"] == "first_lap" for _, c in out):
+            add("climb", gained, f"He worked his way from P{grid} to P{fin}, {gained} places up.", f"{me} worked his way from P{grid} to P{fin}")
+        if fin and grid and gained is not None and gained <= -3:
+            # say when the places went: at the start, or over the race
+            if lap1 and lap1 - grid >= 3:
+                add("slipped", -gained, f"He lost {lap1 - grid} places on the opening lap, from P{grid} to P{lap1}, and finished P{fin}.", f"{me} lost {lap1 - grid} places on the opening lap")
+            else:
+                add("slipped", -gained, f"He started P{grid} and finished P{fin}, {-gained} places lower.", f"{me} lost ground through the race, P{grid} to P{fin}")
+        tm = r.get("teammate") or {}
+        if fin and tm.get("finish") and mate:
+            ahead = fin < tm["finish"]
+            add("teammate", 2, f"He finished P{fin}, {'ahead of' if ahead else 'behind'} his teammate {tm['name']} (P{tm['finish']}).",
+                f"{me} beat teammate {mate} to the flag" if ahead else f"{me} finished behind teammate {mate}")
+    elif stype in QUALI_LIKE:
+        pole = r.get("pole") or {}
+        if r.get("position") == 1 and pole.get("lap"):
+            add("pole", 12, f"He took pole with a {pole['lap']}.", f"{me} took pole position")
+        margins = [(k, v) for k, v in sorted(r.items()) if k.endswith("_margin")]
+        if margins:
+            k, v = margins[-1]
+            seg = k.split("_")[0]
+            amount = re.search(r"by (\d+\.\d+s)", v)
+            if amount:
+                add("cut_line", 6, f"In {seg} he {v}.", f"{me} missed the {seg} cut by {amount.group(1)}" if v.startswith("missed") else f"{me} cleared the {seg} cut by {amount.group(1)}")
+        tm = r.get("teammate") or {}
+        if r.get("position") and tm.get("position") and mate:
+            ahead = r["position"] < tm["position"]
+            add("teammate", 2, f"He qualified P{r['position']}, {'ahead of' if ahead else 'behind'} his teammate {tm['name']} (P{tm['position']}).",
+                f"{me} out-qualified teammate {mate}" if ahead else f"Teammate {mate} out-qualified {me}")
+        sec = sheet.get("sectors") or {}
+        if len(sec) == 3 and r.get("note") != "set no time":  # with no lap time, the sectors aren't the story
+            worst_k, worst = max(sec.items(), key=lambda kv: kv[1]["rank"])
+            best_k, best = min(sec.items(), key=lambda kv: kv[1]["rank"])
+            if worst["rank"] - best["rank"] >= 6:
+                add("sectors", 3, f"His best sector was sector {best_k[-1]}, {_ordinal(best['rank'])} of {best['of']}, and his weakest sector {worst_k[-1]}, {_ordinal(worst['rank'])} of {worst['of']}.",
+                    f"Sector {worst_k[-1]} held {me} back")
+    else:
+        pos = r.get("position")
+        ranked = [x for x in sheet.get("long_runs") or [] if x.get("rank")]
+        if ranked and pos:
+            x = min(ranked, key=lambda x: x["rank"])
+            if x["rank"] < pos:
+                add("long_run", 5, f"He was P{pos} over one lap but {_ordinal(x['rank'])} of {x['of_drivers_with_8_plus_laps']} on {x['compound'].lower()} long runs.",
+                    f"{me}'s long-run pace beat his single-lap place")
+        if pos and r.get("teammate_position") and mate:
+            ahead = pos < r["teammate_position"]
+            add("teammate", 2, f"He was P{pos}, {'ahead of' if ahead else 'behind'} his teammate {d.get('teammate')} (P{r['teammate_position']}).",
+                f"{me} was quicker than teammate {mate}" if ahead else f"Teammate {mate} was quicker than {me}")
+    return [c for _, c in sorted(out, key=lambda wc: -wc[0])][:3]
 
 
 def build_driver_session_facts(db: OrmSession, session_id: int, driver_id: int) -> dict[str, Any]:
@@ -364,7 +493,7 @@ def build_driver_session_facts(db: OrmSession, session_id: int, driver_id: int) 
         sheet["stops"] = stop_facts
         verdicts += stop_verdicts
         if any(f["stationary"].startswith("not published") for f in stop_facts):
-            gaps.append("stationary pit-stop times (the feed doesn't publish them for this race; pit-lane time is available)")
+            gaps.append("his stationary time in the pits, which the timing feed doesn't publish for this race (pit-lane time is shown instead)")
         sheet["stints"] = stint_facts(db, session_id, driver_id, periods)
         if sheet["stints"] and len(sheet["stints"]) != len(stop_facts) + 1:
             # the feed's stint list and its pit records disagree: say nothing rather than something wrong
@@ -373,9 +502,10 @@ def build_driver_session_facts(db: OrmSession, session_id: int, driver_id: int) 
         for s in sheet["stints"]:
             if "degradation_s_per_lap" in s:
                 d = s["degradation_s_per_lap"]
-                which = f"{s['compound'].lower()}-tyre stint" if s["compound"] != "UNRECORDED" else "opening stint (compound not recorded)"
-                verdicts.append(f"On his {which}, laps {s['laps']}, his pace fell away by about {d:.2f}s per lap once fuel burn is allowed for." if d > 0.02
-                                else f"On his {which}, laps {s['laps']}, his pace held steady once fuel burn is allowed for ({d:+.2f}s per lap).")
+                known = s["compound"] != "UNRECORDED"
+                which = f"{s['compound'].lower()}-tyre stint (laps {s['laps']})" if known else f"opening stint (laps {s['laps']}, tyre not recorded)"
+                verdicts.append(f"His pace fell away through his {which}, by about {d:.2f}s a lap allowing for the fuel he burned." if d > 0.02
+                                else f"His pace held steady through his {which}, allowing for the fuel he burned.")
         # nearest rivals on track
         counts: dict[int, int] = defaultdict(int)
         for other, by_lap in pos.items():
@@ -400,7 +530,28 @@ def build_driver_session_facts(db: OrmSession, session_id: int, driver_id: int) 
         fin, grid = result["finish"], result["grid"]
         sheet["result_headline"] = (f"P{fin} from P{grid}" if fin and grid else f"P{fin}" if fin
                                     else f"Retired on lap {result['retired_on_lap']}" if result.get("retired_on_lap") else "Retired")
+        trace = sheet.get("position_trace") or {}
+        if grid and trace.get("end_of_lap_1"):
+            sheet["allowed_place_counts"] = [abs(grid - trace["end_of_lap_1"])]  # "gained N places on the opening lap"
+    sheet["verdict_candidates"] = verdict_candidates(sheet)
     return sheet
+
+
+PROMPT_DROP = {"rivals_stops", "laps_completed", "allowed_place_counts"}
+
+
+def prompt_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
+    """What the model sees: the sheet without bookkeeping it shouldn't write about (REVIEW_ROUND2 B3).
+    The fact-checker still checks against the full sheet."""
+    out = {k: v for k, v in sheet.items() if k not in PROMPT_DROP}
+    if not (sheet.get("weather") or {}).get("rain_reported"):
+        out.pop("weather", None)  # temperatures on a dry day are noise in a story
+    out["meta"] = {k: v for k, v in (sheet.get("meta") or {}).items() if k in ("season", "round", "event", "session", "session_type", "sprint_weekend")}
+    out["driver"] = {k: v for k, v in (sheet.get("driver") or {}).items() if k != "car_number"}
+    if isinstance(out.get("sectors"), dict):
+        out["sectors"] = {k: {kk: vv for kk, vv in v.items() if kk != "of_means"} for k, v in out["sectors"].items()}
+        out["sectors_note"] = "ranks are among drivers who set a time in that sector"
+    return out
 
 
 def numbers_in(obj: Any) -> set[float]:

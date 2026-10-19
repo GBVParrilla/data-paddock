@@ -2,13 +2,15 @@ import type { ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
+import { ModeSwitch } from '../state/mode'
 import { useStore } from '../state/store'
+import { PageSources } from './PageSources'
 
 export function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 sm:gap-2.5" aria-label="Data Paddock home">
       <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="5" width="8" height="22" rx="2" fill="var(--text)" /><rect x="17" y="5" width="9" height="9" rx="2" fill="var(--accent)" /></svg>
-      <span className="font-semibold tracking-tight whitespace-nowrap text-[15px]">Data Paddock</span>
+      <span className="font-semibold tracking-tight whitespace-nowrap text-[15px] hidden sm:inline">Data Paddock</span>
     </Link>
   )
 }
@@ -27,7 +29,8 @@ export function Shell({ children }: { children: ReactNode }) {
             <NavLink to="/races" className={link}>Races</NavLink>
             <NavLink to={`/season/${year ?? ''}`} className={link}>Standings</NavLink>
           </nav>
-          <div className={`ml-auto ${(seasons.data?.length ?? 0) <= 1 ? 'hidden' : ''}`}>
+          <div className="ml-auto"><ModeSwitch /></div>
+          <div className={(seasons.data?.length ?? 0) <= 1 ? 'hidden' : ''}>
             <label className="sr-only" htmlFor="season">Season</label>
             <select
               id="season"
@@ -42,10 +45,10 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </header>
       {/* a full screen of room up front keeps the footer from jumping as data arrives (layout shift) */}
-      <main className="flex-1 min-h-[calc(100vh-3.5rem)]">{children}</main>
+      <main className="flex-1 min-h-[calc(100vh-3.5rem)]">{children}<PageSources /></main>
       <footer className="border-t mt-16" style={{ borderColor: 'var(--line)' }}>
         <div className="wrap py-6 flex flex-wrap gap-x-6 gap-y-2 justify-between text-[12px] t3">
-          <span>Timing data from OpenF1 and Jolpica. Circuit maps in F1's orientation via MultiViewer. Stories written by Claude from that data.</span>
+          <span>Timing data from OpenF1 and Jolpica. Circuit maps in F1's orientation via MultiViewer.</span>
           <span>Not affiliated with Formula 1.</span>
         </div>
       </footer>

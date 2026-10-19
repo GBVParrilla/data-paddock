@@ -79,7 +79,7 @@ button:disabled { cursor: default; }
 .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
 .seg button { padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
 .seg button:hover:not(:disabled) { color: var(--text); }
-.seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--line-2); color: var(--text); }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .seg button[aria-checked="true"] { background: var(--line-2); color: var(--text); }
 .seg button:disabled { color: var(--text-3); opacity: 0.5; }
 .seg.sm button { padding: 3px 9px; font-size: 12px; }
 
@@ -94,9 +94,10 @@ button:disabled { cursor: default; }
 
 /* tables */
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th { font-size: 12px; font-weight: 500; color: var(--text-3); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.tbl td { padding: 0 10px; height: 34px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tbl th { font-size: 12px; font-weight: 500; color: var(--text-3); text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tbl td { padding: 0 8px; height: 34px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .tbl tr:last-child td { border-bottom: 0; }
+@media (max-width: 639px) { .tbl th, .tbl td { padding-left: 6px; padding-right: 6px; } }
 .tbl .r { text-align: right; }
 .tbl tbody tr.clickable { cursor: pointer; }
 .tbl tbody tr.clickable:hover td { background: var(--hover); }

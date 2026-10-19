@@ -161,7 +161,10 @@ export interface Comparison {
   narrative?: ComparisonNarrative
 }
 
+export interface SiteMeta { season_year: number | null; last_round: number | null; last_event: string | null; generated_at: string }
+
 export const api = {
+  meta: (s?: AbortSignal) => get<SiteMeta>('/meta', s),
   seasons: (s?: AbortSignal) => get<Season[]>('/seasons', s),
   events: (year: number, s?: AbortSignal) => get<Event[]>(`/seasons/${year}/events`, s),
   standings: (year: number, s?: AbortSignal) => get<Standings>(`/seasons/${year}/standings`, s, undefined, 'No results yet this season.'),
@@ -184,13 +187,21 @@ export const api = {
   chartAnnotations: (sessionId: number, s?: AbortSignal) => get<ChartAnnotation[]>(`/sessions/${sessionId}/chart-annotations`, s),
   raceControl: (sessionId: number, s?: AbortSignal) => get<RaceControl>(`/sessions/${sessionId}/race-control`, s),
   midfieldSpotlight: (sessionId: number, generate: boolean, s?: AbortSignal) =>
-    get<MidfieldStory>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
+    get<MidfieldStory | null>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
   compare: (sessionId: number, a: number, b: number, generate: boolean, s?: AbortSignal) =>
     STATIC ? staticCompare(sessionId, a, b, s) : get<Comparison>(`/sessions/${sessionId}/compare?driver_a=${a}&driver_b=${b}&generate=${generate}`, s),
-  turnDeltas: (sessionId: number, driverId: number, s?: AbortSignal) =>
-    get<TurnDeltas>(`/sessions/${sessionId}/drivers/${driverId}/turn-deltas`, s, undefined, 'Turn-by-turn times aren\'t available for this driver in this session.'),
+  /** Static site: the drivers with a turn-by-turn breakdown in this session. Live API: null (computed on request). */
+  turnDeltaDrivers: async (sessionId: number, s?: AbortSignal): Promise<number[] | null> =>
+    STATIC ? (await get<{ drivers: number[] }>('', s, `sessions/${sessionId}/turn-deltas`)).drivers : null,
+  turnDeltas: async (sessionId: number, driverId: number, s?: AbortSignal) => {
+    // ask the index first: a breakdown that isn't exported would be a 404 in the console (REVIEW_ROUND2 #48)
+    const have = await api.turnDeltaDrivers(sessionId, s)
+    if (have && !have.includes(driverId)) throw new ApiError(404, TURNS_MISSING)
+    return get<TurnDeltas>(`/sessions/${sessionId}/drivers/${driverId}/turn-deltas`, s, undefined, TURNS_MISSING)
+  },
 }
 
+const TURNS_MISSING = 'Turn-by-turn times aren\'t available for this driver in this session.'
 const STORY_NOT_WRITTEN = 'This story hasn\'t been written yet - stories are generated automatically after each session is processed.'
 
 /** 'Red Bull Racing' -> 'red-bull-racing'. Mirrors f1tracker.narratives.edits.slug. */
@@ -200,9 +211,11 @@ export function slug(text: string): string {
 
 /** Static mode: the detail view assembled from the small per-view files the exporter writes. */
 async function staticDetail(sessionId: number, s?: AbortSignal): Promise<Detail> {
-  const opt = <T,>(p: Promise<T>, empty: T) => p.catch((e) => { if (e instanceof ApiError) return empty; throw e })
+  // positions are exported for races and sprints only; asking for them elsewhere is a 404 in the console
+  const { session } = await get<Headline>(`/sessions/${sessionId}/headline`, s)
+  const raceLike = session.session_type === 'R' || session.session_type === 'S'
   const [pos, stints, sectors, pace] = await Promise.all([
-    opt(get<{ position_by_lap: PositionByLap[] }>('', s, `sessions/${sessionId}/positions`), { position_by_lap: [] }),
+    raceLike ? get<{ position_by_lap: PositionByLap[] }>('', s, `sessions/${sessionId}/positions`) : Promise.resolve({ position_by_lap: [] as PositionByLap[] }),
     get<{ stint_timeline: StintRow[]; pit_stops: PitStopRow[] }>('', s, `sessions/${sessionId}/stints`),
     get<{ best: { driver_id: number; sector: 1 | 2 | 3; best_ms: number }[] }>('', s, `sessions/${sessionId}/sectors`),
     get<{ long_run_pace: Detail['long_run_pace'] }>('', s, `sessions/${sessionId}/pace`),

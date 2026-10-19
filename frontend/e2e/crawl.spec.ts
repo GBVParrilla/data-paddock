@@ -4,6 +4,9 @@ import { expect, test, type Page } from '@playwright/test'
 // no console errors or uncaught exceptions, a non-empty <main>, and no leaked machine text.
 const FORBIDDEN: RegExp[] = [/\bNone\b/, /\bnull\b/, /\bundefined\b/, /\bNaN\b/, /\[object/, /BAD_FORMAT/, /\{\}/, /<br>/]
 const PILOT_ROUNDS = [1, 12, 17]
+// Helper text the declutter removed (REVIEW_ROUND2 A7). Exactly one hint may remain: "Pick up to two drivers".
+const OLD_HINTS = ['What decided the race, in lap order', 'Pick a driver to follow their weekend', 'Hover a line', 'Tap a line', 'Circles mark pit stops', 'What stood out']
+const FRESHNESS = /Data through round \d+ · updated \d{1,2} [A-Z][a-z]{2}/
 
 type Watch = { problems: string[] }
 
@@ -46,6 +49,47 @@ async function check(page: Page, w: Watch, label: string) {
   expect.soft(w.problems.splice(0), `${label}: console errors`).toEqual([])
   const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth])
   expect.soft(scroll, `${label}: page scrolls sideways (${scroll}px content in a ${width}px window)`).toBeLessThanOrEqual(width + 1)
+  // a page-specific title, never the bare site name (REVIEW #24, #43)
+  expect.soft(await page.title(), `${label}: page title`).toMatch(/^.+ · Data Paddock$/)
+  const calm = await page.evaluate(() => {
+    const terms = [...document.querySelectorAll('main [data-term]')].map((t) => t.getAttribute('data-term'))
+    const hints = [...document.querySelectorAll('main [data-hint]')].map((t) => t.textContent?.trim())
+    const sources = [...document.querySelectorAll('[data-story-source]')].map((t) => t.getAttribute('data-story-source'))
+    return { terms, hints, sources, body: document.body.innerText }
+  })
+  // each glossary term is underlined once per page, the first time it appears
+  const twice = calm.terms.filter((t, i) => calm.terms.indexOf(t) !== i)
+  expect.soft([...new Set(twice)], `${label}: glossary terms underlined more than once`).toEqual([])
+  expect.soft(calm.hints.length, `${label}: helper labels (${calm.hints.join(' | ')})`).toBeLessThanOrEqual(1)
+  for (const h of OLD_HINTS) expect.soft(calm.body.includes(h), `${label}: removed helper label "${h}" is back`).toBe(false)
+  // nothing claims Claude wrote what the page shows unless a Claude-written story is on it (REVIEW_ROUND2 #37)
+  if (!calm.sources.includes('claude')) expect.soft(/by Claude/i.test(calm.body), `${label}: claims Claude authorship with no Claude-written story on the page`).toBe(false)
+}
+
+/** With nobody picked, a race page is calm: at most 5 panels, and each fact said once (REVIEW_ROUND2 #38, #46). */
+async function calmRacePage(page: Page, label: string) {
+  const r = await page.evaluate(() => {
+    const main = document.querySelector('main')!
+    const panels = [...main.querySelectorAll('.panel')].filter((el) => !el.parentElement?.closest('.panel') && (el as HTMLElement).offsetHeight > 0)
+    const facts = (sel: string) => [...main.querySelectorAll(`${sel} [data-fact]`)].map((e) => e.getAttribute('data-fact'))
+    const table = main.querySelector('section[aria-label="Classification"] .overflow-x-auto')
+    return {
+      panels: panels.map((p) => p.getAttribute('aria-label') ?? p.className), summary: facts('[data-summary]'), moments: facts('section[aria-label="Key moments"]'),
+      tableOverflow: table ? table.scrollWidth - table.clientWidth : 0,
+      podium: [...main.querySelectorAll('section[aria-label="Classification"] tr[data-pos="1"], section[aria-label="Classification"] tr[data-pos="2"], section[aria-label="Classification"] tr[data-pos="3"]')].map((t) => t.getAttribute('data-driver')),
+      raceLike: !!main.querySelector('section[aria-label="Race positions"]'),
+    }
+  })
+  // the mission stays visible: every race and sprint names someone beyond the podium near the top
+  if (r.raceLike) {
+    const named = [...r.summary, ...r.moments].map((f) => f?.split(':')[0]).filter((d) => d && d !== 'session')
+    expect.soft(named.some((d) => !r.podium.includes(d!)), `${label}: no driver from beyond the podium in the summary or key moments`).toBe(true)
+  }
+  // every column, Pts included, fits its panel at this width (found at 1280-1360px in round 2)
+  expect.soft(r.tableOverflow, `${label}: classification scrolls sideways by ${r.tableOverflow}px`).toBeLessThanOrEqual(1)
+  expect.soft(r.panels.length, `${label}: panels before a driver is picked (${r.panels.join(', ')})`).toBeLessThanOrEqual(5)
+  const both = r.summary.filter((f) => r.moments.includes(f))
+  expect.soft(both, `${label}: facts in both the summary and key moments`).toEqual([])
 }
 
 async function home(page: Page) {
@@ -53,10 +97,20 @@ async function home(page: Page) {
   await expect(page.locator('main')).toContainText('season')
 }
 
+async function races(page: Page) {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Races' }).click()
+  await expect(page.locator('h1')).toContainText('races')
+}
+
 async function openRound(page: Page, round: number) {
-  await home(page)
+  await races(page)
   await page.locator(`main a[aria-label$=", round ${round}"]`).first().click()
   await expect(page.locator('h1')).not.toBeEmpty()
+}
+
+async function openMoreDetail(page: Page) {
+  const toggle = page.getByRole('button', { name: /more detail/i })
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
 }
 
 async function sessionTabs(page: Page) {
@@ -69,19 +123,24 @@ test.beforeEach(async ({ page }) => {
   await hostileScrollTo(page)
 })
 
-test('every race and every session tab, via in-app links', async ({ page }) => {
+test('every race and every session tab, via in-app links', async ({ page }, info) => {
   const w = watch(page)
   await page.goto('./')
   await check(page, w, 'home')
-  const cards = page.locator('section[aria-label="Results"] a')
-  const n = await cards.count()
-  expect(n, 'completed races on the home page').toBeGreaterThan(0)
+  await expect(page.locator('main'), 'home: freshness stamp').toContainText(FRESHNESS)
+  // home shows the latest 4 races; /races has them all
+  expect(await page.locator('section[aria-label="Results"] a[aria-label*=", round "]').count(), 'big race cards on home').toBeLessThanOrEqual(4)
+  await races(page)
+  await check(page, w, 'races')
+  const n = await page.locator('section[aria-label="Results"] a').count()
+  expect(n, 'completed races on /races').toBeGreaterThan(0)
   for (let i = 0; i < n; i++) {
-    if (i > 0) await home(page)
+    if (i > 0) await races(page)
     const card = page.locator('section[aria-label="Results"] a').nth(i)
     const label = (await card.getAttribute('aria-label')) ?? `card ${i}`
     await card.click()
     await check(page, w, label)
+    await expect.soft(page.locator('main'), `${label}: freshness stamp`).toContainText(FRESHNESS)
     const tabs = await sessionTabs(page)
     const count = await tabs.count()
     for (let t = 0; t < count; t++) {
@@ -89,6 +148,12 @@ test('every race and every session tab, via in-app links', async ({ page }) => {
       const name = (await tab.innerText()).trim()
       await tab.click()
       await check(page, w, `${label} / ${name}`)
+      await calmRacePage(page, `${label} / ${name}`)
+      if (name === 'Race' && info.project.name === 'mobile') {
+        // points are the result fans look for: visible without scrolling sideways (REVIEW_ROUND2 #45)
+        const pts = page.locator('section[aria-label="Classification"] th', { hasText: 'Pts' })
+        await expect.soft(pts, `${label}: Pts column`).toBeInViewport()
+      }
     }
   }
 })
@@ -112,7 +177,21 @@ for (const round of PILOT_ROUNDS) {
       await check(page, w, `R${round} ${name}: one driver`)
       await rows.nth(10).click()
       await check(page, w, `R${round} ${name}: two drivers`)
+      await openMoreDetail(page)
       const dd = page.getByRole('region', { name: 'Deep dive' }).getByRole('tab')
+      if (name === 'Race') {
+        // tyres, sectors, race control, plus turn by turn once that driver's breakdown is exported (#8)
+        const turns = await page.evaluate(async () => {
+          const sid = document.querySelector('[data-session]')?.getAttribute('data-session')
+          const picked = [...document.querySelectorAll('section[aria-label="Classification"] tr[aria-selected="true"]')].map((t) => Number(t.getAttribute('data-driver')))
+          const res = await fetch(`${document.baseURI.replace(/\/(race|season|races)(\/.*)?(\?.*)?$/, '/')}data/sessions/${sid}/turn-deltas.json`)
+          if (!res.ok || !(res.headers.get('content-type') ?? '').includes('json')) return null
+          const have = (await res.json()).drivers as number[]
+          return picked.some((d) => have.includes(d))
+        })
+        expect(turns, `R${round} race: turn-deltas index`).not.toBeNull()
+        expect.soft(await dd.count(), `R${round} race: deep-dive tabs`).toBeGreaterThanOrEqual(turns ? 4 : 3)
+      }
       for (let k = 0; k < (await dd.count()); k++) {
         await dd.nth(k).click()
         await check(page, w, `R${round} ${name}: deep dive ${(await dd.nth(k).innerText()).trim()}`)
@@ -128,6 +207,8 @@ test('standings: drivers, constructors and season stories', async ({ page }) => 
   await check(page, w, 'home')
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Standings' }).click()
   await check(page, w, 'standings')
+  await expect(page, 'standings title after in-app navigation').toHaveTitle(/standings/)
+  await expect.soft(page.locator('main'), 'standings: freshness stamp').toContainText(FRESHNESS)
   await page.locator('section[aria-label="Driver standings"] tbody tr').nth(7).click()
   await check(page, w, 'standings: driver story')
   await page.getByRole('button', { name: 'Constructors' }).click()
@@ -163,4 +244,20 @@ test('a driver\'s race has its own page', async ({ page }) => {
   await page.goto('race/1/driver/gasly')
   await expect(page.getByRole('region', { name: "Pierre Gasly's weekend" })).toBeVisible()
   await check(page, w, 'driver race page')
+})
+
+test('Expert mode opens more detail and the full story, and survives a shared link', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('race/1/driver/gasly?mode=expert')
+  const story = page.getByRole('region', { name: "Pierre Gasly's weekend" })
+  await expect(story).toBeVisible()
+  await expect(page.getByRole('button', { name: /more detail/i })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('region', { name: 'Deep dive' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Expert' })).toBeChecked()
+  await check(page, w, 'expert driver page')
+  // back to Essential: the detail closes again for a page with nobody picked
+  await page.getByRole('radio', { name: 'Essential' }).click()
+  await page.getByRole('button', { name: 'Clear selection' }).click()
+  await expect(page.getByRole('button', { name: /more detail/i })).toHaveAttribute('aria-expanded', 'false')
+  await check(page, w, 'essential, nobody picked')
 })

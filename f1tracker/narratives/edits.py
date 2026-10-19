@@ -239,11 +239,11 @@ def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify:
         problems = ["written before stories were fact-checked"] if not n.is_template else []
     else:
         ctx = story_context(db, n.session_id)
-        data = {"headline": n.headline, "summary": n.summary, "story": n.narrative_text, "analysis": n.strategy_analysis_text}
+        data = {"headline": n.headline, "essential": n.summary, "expert": n.narrative_text, "analysis": n.strategy_analysis_text}
         problems = [str(v) for v in check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"])]
     if problems or n.is_template:
         t = template_story(sheet)  # always rebuilt from today's facts
-        out.update({"headline": t["headline"], "summary": t["summary"], "narrative_text": t["story"], "strategy_analysis_text": t["analysis"],
+        out.update({"headline": t["headline"], "summary": t["essential"], "narrative_text": t["expert"], "strategy_analysis_text": t["analysis"],
                     "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"], "source": "template"})
         if problems and not n.is_template:
             out["replaced_because"] = problems[0]
@@ -329,8 +329,8 @@ def template_driver_session(db: OrmSession, session_id: int, driver_id: int) -> 
     session = db.get(Session, session_id)
     t = template_story(build_driver_session_facts(db, session_id, driver_id))
     out = {
-        "session_id": session_id, "driver_id": driver_id, "session_type": session.session_type, "headline": t["headline"], "summary": t["summary"],
-        "narrative_text": t["story"], "strategy_analysis_text": t["analysis"], "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"],
+        "session_id": session_id, "driver_id": driver_id, "session_type": session.session_type, "headline": t["headline"], "summary": t["essential"],
+        "narrative_text": t["expert"], "strategy_analysis_text": t["analysis"], "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"],
         "source": "template", "generated_at": None, "model_used": "template", "story_key": driver_session_key(db, session_id, driver_id), "edited": False,
     }
     return _apply_edit(db, out, "narrative_text", "strategy_analysis_text")

@@ -53,12 +53,15 @@ class _Writer:
         self.bytes += len(blob)
 
 
-def _try(write: _Writer, rel: str, fn, *args, **kwargs) -> None:
-    """Write fn()'s result; a 404-style 'not available' is simply not exported (the site shows a note)."""
+def _try(write: _Writer, rel: str, fn, *args, empty: Any = ..., **kwargs) -> None:
+    """Write fn()'s result. A 404-style 'not available' is not exported, or written as `empty` when the
+    page always asks for this file (a missing file is a console error on the live site, REVIEW_ROUND2 #48)."""
     try:
         write(rel, fn(*args, **kwargs))
     except (HTTPException, ValueError) as exc:
         log.debug("skip %s: %s", rel, exc)
+        if empty is not ...:
+            write(rel, empty)
 
 
 def _best_sectors(rows: list[dict]) -> list[dict]:
@@ -90,6 +93,7 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
         shutil.rmtree(out)
     write = _Writer(out)
 
+    write("meta", api.site_meta(db=db))
     write("seasons", api.list_seasons(db=db))
     write("drivers", api.list_drivers(db=db))
 
@@ -140,16 +144,20 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
         write(f"{base}/race-control", api.race_control(s.id, db=db))
         write(f"{base}/lap-times", api.lap_times(s.id, db=db))
         write(f"{base}/comparisons", api.stored_comparisons(s.id, db=db))
-        _try(write, f"{base}/midfield-spotlight", api.midfield_spotlight, s.id, generate=False, db=db)
+        _try(write, f"{base}/midfield-spotlight", api.midfield_spotlight, s.id, generate=False, db=db, empty=None)
         if s.session_type in STORY_SESSION_TYPES:
             stories = {n.driver_id: n for n in db.scalars(select(DriverSessionNarrative).where(DriverSessionNarrative.session_id == s.id)).all()}
             for did in session_driver_ids(db, s):
                 n = stories.get(did)
                 _try(write, f"{base}/drivers/{did}/narrative", lambda n=n, did=did: present_driver_session(db, n) if n else template_driver_session(db, s.id, did))
+        with_turns = []
         for td in db.scalars(select(TurnDeltaCache).where(TurnDeltaCache.session_id == s.id, TurnDeltaCache.payload_json.is_not(None))).all():
             payload = json.loads(td.payload_json)
             if payload.get("version") == TURN_DELTA_VERSION:  # older breakdowns didn't add up; wait for the recompute
                 write(f"{base}/drivers/{td.driver_id}/turn-deltas", payload)
+                with_turns.append(td.driver_id)
+        # which drivers have a breakdown: the page asks this before fetching one, and hides the tab otherwise
+        write(f"{base}/turn-deltas", {"drivers": sorted(with_turns)})
 
     log.info("exported %d files (%.1f MB) to %s; stories by source: %s", write.files, write.bytes / 1e6, out, write.sources)
     return write

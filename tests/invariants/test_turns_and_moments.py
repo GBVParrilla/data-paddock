@@ -84,3 +84,18 @@ def test_key_moments_are_not_routine_stops(sid):
             assert re.search(r"slow|lost|gained|undercut|overcut|under the|unsafe|penalty", m["description"], re.I), (
                 f"routine stop listed as key: {m['description']}"
             )
+
+
+def test_turn_delta_index_matches_the_exported_breakdowns():
+    """REVIEW_ROUND2 #48: the page asks the index before fetching a breakdown, so the two must agree."""
+    for _, s in all_sessions():
+        index = load(f"sessions/{s['id']}/turn-deltas")
+        assert index is not None, f"session {s['id']} has no turn-deltas index"
+        files = sorted(int(p.parent.name) for p in (DATA_DIR / "sessions" / str(s["id"]) / "drivers").glob("*/turn-deltas.json"))
+        assert sorted(index["drivers"]) == files, f"session {s['id']}: index {index['drivers']} vs files {files}"
+
+
+def test_every_session_page_finds_its_midfield_file():
+    """REVIEW_ROUND2 #48: always present (null when no story stood out), never a 404 on the live site."""
+    missing = [s["id"] for _, s in all_sessions() if not (DATA_DIR / "sessions" / str(s["id"]) / "midfield-spotlight.json").exists()]
+    assert not missing, f"sessions without midfield-spotlight.json: {missing}"

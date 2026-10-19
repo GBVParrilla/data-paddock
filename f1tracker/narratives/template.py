@@ -70,6 +70,61 @@ def _incidents(sheet: dict) -> list[str]:
     return out
 
 
+def _fit(sentences: list[str | None], limit: int) -> str:
+    """As many of the sentences, in order, as fit the word limit (the fact-checker's budget)."""
+    out, n = [], 0
+    for x in sentences:
+        if not x:
+            continue
+        w = len(re.findall(r"[\w'’.-]+", x))
+        if n + w > limit:
+            continue
+        out.append(x)
+        n += w
+    return " ".join(out)
+
+
+def _lead(sheet: dict) -> dict | None:
+    return (sheet.get("verdict_candidates") or [None])[0]
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+# candidates that explain a cause or a margin can open Essential; outcomes (a climb, a retirement, a
+# teammate result) are already in the result line, so leading with them would say the same thing twice
+OPENERS = {"win", "stop_timing", "pit_cycle", "cut_line", "long_run", "sectors", "first_lap"}
+FILLER = {"he", "his", "him", "the", "a", "an", "and", "from", "to", "in", "on", "of", "by", "at", "for", "with", "was", "is"}
+
+
+def _adds_to(verdict: str, headline: str) -> bool:
+    """True when the verdict brings at least two words the headline doesn't have, beyond positions and
+    filler: a rival's name, a cause ("through the pit stops"), not just "from P14 to P9"."""
+    extra = {w for w in _words(verdict) - _words(headline) - FILLER if not re.fullmatch(r"p?\d+", w)}
+    return len(extra) >= 2
+
+
+def _essential(lead: dict | None, headline: str, result_line: str, cands: list[dict], verdicts: list[str], mate_line: str | None) -> tuple[str, set[str]]:
+    """Cause, then effect, for a new fan: the lead verdict when it adds to the headline, the result, then the
+    next part of the story. Returns the text and the verdicts it used (the analysis states the rest)."""
+    opening = lead["verdict"] if lead and lead["kind"] in OPENERS and _adds_to(lead["verdict"], headline) and (lead["verdict"] not in verdicts or len(verdicts) > 1) else None
+    used = {opening} if opening else set()
+    left = [v for v in verdicts if v not in used]
+    second = next((c for c in cands[1:] if c["kind"] != "teammate" and (c["verdict"] not in left or len(left) > 1)), None)
+    if second:
+        used.add(second["verdict"])
+    return _fit([opening, result_line, second["verdict"] if second else None, mate_line], 85), used
+
+
+def _mate_line(mate: dict, key: str) -> str | None:
+    if not mate.get("name"):
+        return None
+    if key == "finish":
+        return f"Teammate {mate['name']} " + (f"finished P{mate['finish']}." if mate.get("finish") else "did not finish.")
+    return f"Teammate {mate['name']} " + (f"was P{mate['position']}." if mate.get("position") else "set no time.")
+
+
 def race_story(sheet: dict) -> dict[str, Any]:
     d, r = sheet["driver"], sheet["result"]
     name, last = d["name"], d["name"].split(" ")[-1]
@@ -82,132 +137,152 @@ def race_story(sheet: dict) -> dict[str, Any]:
         story = f"{name} was due to start{grid} but did not take the start."
         if mate.get("name"):
             story += f" His teammate {mate['name']} " + (f"finished P{mate['finish']}." if mate.get("finish") else "did not finish.")
-        return {"headline": f"Did not start{grid}", "summary": story, "story": story, "analysis": "", "key_numbers": [{"label": "Grid", "value": f"P{r['grid']}"}] if r.get("grid") else [], "glossary_terms": ["DNS"]}
+        return {"headline": f"Did not start{grid}", "essential": story, "expert": story, "analysis": "", "key_numbers": [{"label": "Grid", "value": f"P{r['grid']}"}] if r.get("grid") else [], "glossary_terms": ["DNS"]}
 
     grid, fin, gained = r.get("grid"), r.get("finish"), r.get("places_gained")
-    if fin:
-        headline = f"P{fin} from P{grid}" if grid else f"P{fin} from the pit lane"
-        if r.get("points"):
-            headline += f" for {_pts(r['points'])}"
+    lead = _lead(sheet)
+    if lead:
+        headline = lead["headline"]
     else:
-        headline = ("Retired" + (f" on lap {r['retired_on_lap']}" if r.get("retired_on_lap") else "")) + (f" from P{grid} on the grid" if grid else "")
-    if status == "retired" or status == "not classified":
+        headline = f"No single turning point in {last}'s run to P{fin}" if fin else f"{last}'s race ended early"
+    if status in ("retired", "not classified"):
         terms.append("DNF")
         reason = r.get("retirement_reason_given")
         when = f" on lap {r['retired_on_lap']}" if r.get("retired_on_lap") else ""
-        start = f"started P{grid} and " if grid else ""
-        opening = f"{name} {start}retired{when}" + (f" ({reason})" if reason and reason != "not stated" else "") + "."
+        at = (sheet.get("position_trace") or {}).get("final")
+        result_line = f"He started {f'P{grid}' if grid else 'from the pit lane'} and retired{when}" + (f" while running P{at}" if at else "") + (f" ({reason})" if reason and reason != "not stated" else "") + "."
         if fin:
-            opening = f"{name} {start}stopped{when}, but had covered enough of the distance to be classified P{fin}."
+            result_line = f"He stopped{when}, but had covered enough of the distance to be classified P{fin}."
     else:
-        how = f", {r['gap_to_winner']} behind the winner" if r.get("gap_to_winner") else (f", {r['status'].replace('finished ', '')}" if "down" in (r.get("status") or "") else "")
-        if "down" in (r.get("status") or ""):
+        down = "down" in (status or "")
+        if down:
             terms.append("lapped")
-        opening = f"{name} started {f'P{grid}' if grid else 'from the pit lane'} and finished P{fin}{how}, scoring {_pts(r.get('points'))}."
-    summary = opening
-    if stops:
-        laps = " and ".join(f"lap {s['in_lap']}" for s in stops)
-        summary += f" He stopped {_times(len(stops))}, on {laps}."
-    if mate.get("name"):
-        summary += f" Teammate {mate['name']} " + (f"finished P{mate['finish']}." if mate.get("finish") else "did not finish.")
+        down_txt = f", {status.replace('finished ', '')}" if down else ""
+        if fin == 1:
+            result_line = f"He started from {'pole' if grid == 1 else f'P{grid}' if grid else 'the pit lane'} and took {_pts(r.get('points'))}."
+        elif grid == fin:
+            result_line = f"He started and finished P{fin}{down_txt}, scoring {_pts(r.get('points'))}."
+        else:
+            result_line = f"He started {f'P{grid}' if grid else 'from the pit lane'} and finished P{fin}{down_txt}, scoring {_pts(r.get('points'))}."
+    all_verdicts = sheet.get("verdicts") or []
+    essential, used = _essential(lead, headline, result_line, sheet.get("verdict_candidates") or [], all_verdicts,
+                                 None if (lead or {}).get("kind") == "teammate" else _mate_line(mate, "finish"))
+    essential = f"{name} " + essential[3:] if essential.startswith("He ") else essential
+    verdicts = [v for v in all_verdicts if v not in used]
 
-    paras = [opening]
+    expert = []
+    if r.get("gap_to_winner"):
+        expert.append(f"He finished {r['gap_to_winner']} behind the winner.")
     trace = sheet.get("position_trace") or {}
     if trace.get("end_of_lap_1"):
-        paras[0] += f" He was P{trace['end_of_lap_1']} after the first lap and ran between P{trace['best']} and P{trace['worst']}."
+        expert.append(f"He was P{trace['end_of_lap_1']} after lap 1 and ran between P{trace['best']} and P{trace['worst']}.")
     strat = []
-    for s in sheet.get("stints") or []:
-        if s.get("laps"):
-            strat.append(f"{_tyre(s['compound'])} for laps {s['laps']}")
-            if s["compound"] != "UNRECORDED":
+    for st in sheet.get("stints") or []:
+        if st.get("laps"):
+            strat.append(f"{_tyre(st['compound'])} for laps {st['laps']}")
+            if st["compound"] != "UNRECORDED":
                 terms.append("compound")
     if strat:
-        paras.append("He ran " + ", then ".join(strat) + ".")
-    for s in stops:
-        lane = f" ({s['pit_lane_time']} in the pit lane)" if s.get("pit_lane_time") else ""
-        paras.append(f"His stop on lap {s['in_lap']}{lane} took him from P{s['position_before']} to P{s['position_after_cycle']} once the cars around him had stopped." if s.get("position_before") and s.get("position_after_cycle") else f"He pitted at the end of lap {s['in_lap']}{lane}.")
-    for x in (_sectors(sheet), _rivals(sheet)):
-        if x:
-            paras.append(x)
-    paras += _incidents(sheet)
+        expert.append("He ran " + ", then ".join(strat) + ".")
+    for st in stops:
+        lane = f", {st['pit_lane_time']} in the pit lane" if st.get("pit_lane_time") else ""
+        expert.append(f"He pitted on lap {st['in_lap']}{lane}.")
+    for st in sheet.get("stints") or []:
+        dg = st.get("degradation_s_per_lap")
+        if dg is not None and st.get("laps"):
+            # the same rounding as the verdict, so the number is one the sheet states
+            expert.append(f"Allowing for fuel, his pace on laps {st['laps']} faded by about {dg:.2f}s a lap." if dg > 0.02
+                          else f"Allowing for fuel, his pace on laps {st['laps']} held steady.")
+            break
+    expert += [_sectors(sheet), _rivals(sheet)] + _incidents(sheet)
     if any("Virtual Safety Car" in (n.get("kind") or "") for n in sheet.get("neutralisations") or []):
         terms.append("VSC")
-    analysis = " ".join(sheet.get("verdicts")[:3]) if sheet.get("verdicts") else "The data shows no strategic turning point for him: no stop that gained or cost places, and no neutralisation that changed his race."
-    if sheet.get("insufficient_data"):
-        analysis += f" Not available: {sheet['insufficient_data'][0]}."
+    analysis = _fit(verdicts + ([f"Not known: {sheet['insufficient_data'][0]}."] if sheet.get("insufficient_data") else []), 75) \
+        or ("His race ended before the strategy could play out." if status in ("retired", "not classified") and not fin
+            else "No stop gained or cost him places, and no neutralisation changed his race: his result came down to his pace.")
     keys = [{"label": "Finish", "value": f"P{fin}" if fin else "DNF"}, {"label": "Grid", "value": f"P{grid}" if grid else "Pit lane"}]
     if gained:
         keys.append({"label": "Places", "value": f"{gained:+d}"})
     keys.append({"label": "Stops", "value": str(len(stops))})
-    return {"headline": headline, "summary": summary, "story": "\n\n".join(_merge(paras)), "analysis": analysis, "key_numbers": keys[:4], "glossary_terms": sorted(set(terms))}
+    return {"headline": headline, "essential": essential, "expert": _fit(expert, 105), "analysis": analysis, "key_numbers": keys[:4], "glossary_terms": sorted(set(terms))}
 
 
 def quali_story(sheet: dict) -> dict[str, Any]:
     d, r = sheet["driver"], sheet["result"]
-    name = d["name"]
+    name, last = d["name"], d["name"].split(" ")[-1]
     sq = sheet["meta"]["session_type"] == "SQ"
     label = "sprint qualifying" if sq else "qualifying"
     pos = r.get("position")
     mate = r.get("teammate") or {}
+    lead = _lead(sheet)
     if r.get("note") == "set no time":
-        headline = f"No time set in {label}"
-        opening = f"{name} set no time in {label}."
+        result_line = f"He set no time in {label}."
+        headline = lead["headline"] if lead else f"{last} never got a timed lap in {label}"
     else:
         reached = r.get("reached", "")
-        headline = f"P{pos} in {label}" + (", into the final segment" if reached.endswith("3") else f", {reached}" if reached else "")
         gap_key = next((k for k in r if k.startswith("gap_to_fastest_in_")), None)
-        gap_txt = f", {r[gap_key]} off the fastest time in {gap_key.rsplit('_', 1)[-1]}" if gap_key else ""
-        opening = f"{name} qualified P{pos}" + (f" and was {reached}" if reached and not reached.endswith("3") else " and reached the final segment") + gap_txt + "."
-    summary = opening
-    if mate.get("name"):
-        summary += f" Teammate {mate['name']} " + (f"was P{mate['position']}." if mate.get("position") else "set no time.")
-    paras = [opening]
+        result_line = "He qualified on pole." if pos == 1 else f"He qualified P{pos}" + (f" and was {reached}" if reached and not reached.endswith("3") else " and reached the final segment") + "."
+        headline = lead["headline"] if lead else f"No single deciding moment in {last}'s {label}"
+    margins = [v for k, v in r.items() if k.endswith("_margin")]
+    analysis = f"What decided his session: he {margins[-1]}." if margins else "His position came down to raw pace: no cut line was close."
+    essential, _ = _essential(lead, headline, result_line, sheet.get("verdict_candidates") or [], [analysis] if margins else [],
+                              None if (lead or {}).get("kind") == "teammate" else _mate_line(mate, "position"))
+    essential = re.sub(r"^(In S?Q\d) he ", rf"\1 {name} ", essential)  # "In Q2 Pierre Gasly missed out..."
+    if margins and margins[-1] in essential:  # Essential already gave the margin: the analysis adds the next finding
+        nxt = next((c["verdict"] for c in sheet.get("verdict_candidates") or [] if c["verdict"] not in essential and c["kind"] != "teammate"), None)
+        analysis = nxt or _sectors(sheet) or analysis
+    essential = f"{name} " + essential[3:] if essential.startswith("He ") else essential
+    expert = []
+    gap_key = next((k for k in r if k.startswith("gap_to_fastest_in_")), None)
+    if gap_key:
+        expert.append(f"He was {r[gap_key]} off the fastest time in {gap_key.rsplit('_', 1)[-1]}.")
     times = r.get("times") or {}
     if times:
-        paras.append("His best times: " + ", ".join(f"{k} {v}" for k, v in times.items()) + ".")
-    margins = [v for k, v in r.items() if k.endswith("_margin")]
-    if margins:
-        paras.append("At the cut lines he " + "; then ".join(margins) + ".")
-    s = _sectors(sheet)
-    if s:
-        paras.append(s)
-    paras += _incidents(sheet)
-    analysis = " ".join(margins[-1:]).capitalize() + "." if margins else "The data gives no single deciding factor beyond his raw pace."
-    if margins:
-        analysis = f"What decided his session: he {margins[-1]}."
+        expert.append("His best times: " + ", ".join(f"{k} {v}" for k, v in times.items()) + ".")
+    if margins and not (lead and lead["kind"] == "cut_line"):
+        expert.append("At the cut lines he " + "; then ".join(margins) + ".")
+    expert.append(_sectors(sheet))
+    expert += _incidents(sheet)
+    if not any(expert):
+        expert.append(f"Without a timed lap there are no sector or segment times to compare from {label}.")
     keys = [{"label": "Position", "value": f"P{pos}" if pos else "No time"}]
-    gk = next((k for k in r if k.startswith("gap_to_fastest_in_")), None)
-    if gk:
-        keys.append({"label": f"Gap in {gk.rsplit('_', 1)[-1]}", "value": r[gk]})
-    return {"headline": headline, "summary": summary, "story": "\n\n".join(_merge(paras)), "analysis": analysis, "key_numbers": keys, "glossary_terms": ["SQ" if sq else "Q"]}
+    if gap_key:
+        keys.append({"label": f"Gap in {gap_key.rsplit('_', 1)[-1]}", "value": r[gap_key]})
+    return {"headline": headline, "essential": essential, "expert": _fit(expert, 105), "analysis": analysis, "key_numbers": keys, "glossary_terms": ["SQ" if sq else "Q"]}
 
 
 def practice_story(sheet: dict) -> dict[str, Any]:
     d, r = sheet["driver"], sheet["result"]
-    name = d["name"]
+    name, last = d["name"], d["name"].split(" ")[-1]
     session = sheet["meta"]["session_type"]
     pos = r.get("position")
-    headline = f"P{pos} in {session}" if pos else f"No time in {session}"
-    opening = f"{name} was P{pos} of {r.get('of')} in {session}" + (f" with a {r['best_lap']}, {r['gap_to_fastest']} off the fastest time." if r.get("best_lap") and r.get("gap_to_fastest") else ".") if pos else f"{name} set no time in {session}."
     prog = sheet.get("programme") or {}
-    runs = [s for s in prog.get("stints") or [] if s.get("lap_count")]
-    paras = [opening]
+    runs = [st for st in prog.get("stints") or [] if st.get("lap_count")]
+    lead = _lead(sheet)
+    headline = lead["headline"] if lead else (f"{last}'s {session} programme: {_n(len(runs))} run{'s' if len(runs) != 1 else ''}" if runs else f"{last} never got a timed lap in {session}")
+    result_line = f"He was P{pos} of {r.get('of')} in {session}." if pos else f"He set no time in {session}."
+    mate_pos, mate_name = r.get("teammate_position"), d.get("teammate")
+    essential, _ = _essential(lead, headline, result_line, sheet.get("verdict_candidates") or [], [],
+                              f"Teammate {mate_name} was P{mate_pos}." if mate_pos and mate_name else None)
+    essential = f"{name} " + essential[3:] if essential.startswith("He ") else essential
+    expert = []
+    if r.get("best_lap") and r.get("gap_to_fastest"):
+        expert.append(f"His best lap was {r['best_lap']}, {r['gap_to_fastest']} off the fastest.")
     if runs:
-        paras.append(f"His programme was {_n(len(runs))} run{'s' if len(runs) != 1 else ''}: " + "; ".join(f"{s['lap_count']} laps on {_tyre(s['compound'])}" for s in runs) + ".")
+        expert.append(f"His programme was {_n(len(runs))} run{'s' if len(runs) != 1 else ''}: " + "; ".join(f"{st['lap_count']} laps on {_tyre(st['compound'])}" for st in runs) + ".")
     lr = [x for x in sheet.get("long_runs") or [] if x.get("rank")]
     if lr:
         x = lr[0]
-        paras.append(f"On his {x['compound'].lower()} long run he averaged {x['average_lap']} over {x['laps']} laps, {_ord(x['rank'])} of the {x['of_drivers_with_8_plus_laps']} drivers who ran 8 laps or more.")
-    s = _sectors(sheet)
-    if s:
-        paras.append(s)
-    paras += _incidents(sheet)
-    summary = opening.split(" with a ")[0] + "." if " with a " in opening else opening
+        expert.append(f"On his {x['compound'].lower()} long run he averaged {x['average_lap']} over {x['laps']} laps, {_ord(x['rank'])} of the {x['of_drivers_with_8_plus_laps']} drivers who ran 8 laps or more.")
+    expert.append(_sectors(sheet))
+    expert += _incidents(sheet)
+    if not any(expert):
+        expert.append(f"Without a timed lap there are no sector or long-run times to compare from {session}.")
     analysis = "Practice pace is a guide, not a ranking: fuel loads and engine modes aren't published."
     keys = [{"label": "Position", "value": f"P{pos}" if pos else "No time"}]
     if r.get("best_lap"):
         keys.append({"label": "Best lap", "value": r["best_lap"]})
-    return {"headline": headline, "summary": summary, "story": "\n\n".join(_merge(paras)), "analysis": analysis, "key_numbers": keys, "glossary_terms": ["longrun"] if lr else []}
+    return {"headline": headline, "essential": essential, "expert": _fit(expert, 105), "analysis": analysis, "key_numbers": keys, "glossary_terms": ["longrun"] if lr else []}
 
 
 def _merge(paras: list[str]) -> list[str]:
@@ -224,6 +299,6 @@ def _merge(paras: list[str]) -> list[str]:
 def template_story(sheet: dict) -> dict[str, Any]:
     stype = sheet["meta"]["session_type"]
     story = race_story(sheet) if stype in ("R", "S") else quali_story(sheet) if stype in ("Q", "SQ") else practice_story(sheet)
-    for k in ("headline", "summary", "story", "analysis"):  # a missing value must never print as "None"
+    for k in ("headline", "essential", "expert", "analysis"):  # a missing value must never print as "None"
         story[k] = re.sub(r"\s*\b(?:P|lap |laps )?None\b", "", story[k]).replace(" ,", ",").replace(" .", ".")
     return story

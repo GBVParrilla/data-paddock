@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Event } from '../api/client'
+import { Freshness } from '../components/Freshness'
 import { RaceCard } from '../components/RaceCard'
 import { TrackMap } from '../components/TrackMap'
 import { useTitle } from '../hooks/useTitle'
@@ -95,12 +96,15 @@ export function Home() {
   const all = events.data ?? []
   const started = all.filter((e) => e.completed || e.podium?.length).reverse()
   const latest = all.filter((e) => e.completed).at(-1)
+  // the latest race has the feature panel; the four before it get cards, and /races has the full grid (decision D3)
+  const earlier = started.filter((e) => e.id !== latest?.id).slice(0, 4)
   const upcoming = all.filter((e) => !e.completed)
   return (
     <div className="wrap pt-10">
       <div className="mb-8">
         <h1 className="h1">{year ?? ''} season</h1>
         <p className="t2 mt-2 max-w-2xl text-[15px]">Every driver's weekend, told from the timing data. Pick a race, then a driver, from the championship leader to the back of the grid.</p>
+        <Freshness className="mt-3" />
       </div>
       {events.error && <p className="t2">{events.error.message}</p>}
 
@@ -109,14 +113,14 @@ export function Home() {
         {year !== null && <Championship year={year} />}
       </div>
 
-      {started.length > 0 && (
+      {earlier.length > 0 && (
         <section className="mt-12" aria-label="Results">
           <div className="flex items-baseline justify-between mb-4">
-            <h2 className="kicker">Results</h2>
-            <span className="label">{started.length} of {all.length} rounds</span>
+            <h2 className="kicker">Earlier rounds</h2>
+            <Link to="/races" className="btn-ghost text-[13px]">All {started.length} races <span aria-hidden="true">→</span></Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {started.map((e) => <RaceCard key={e.id} event={e} />)}
+            {earlier.map((e) => <RaceCard key={e.id} event={e} />)}
           </div>
         </section>
       )}

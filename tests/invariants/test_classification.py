@@ -88,3 +88,12 @@ def test_gap_pole_to_p10_uses_final_segment(sid):
     rows = sorted(load(f"sessions/{sid}/headline")["qualifying"], key=lambda r: r["position"] or 99)
     if len(rows) >= 10 and rows[9].get("gap_ms") is not None:
         assert rows[9]["gap_segment"] == "Q3", f"P10 gap measured in {rows[9]['gap_segment']}"
+
+
+@params("R", "S")
+def test_no_tyre_stint_for_a_car_that_never_started(sid):
+    """REVIEW_ROUND2 #44: a DNS car has no stint (OpenF1 sometimes lists the tyres it was fitted with)."""
+    dns = {r["driver_id"] for r in load(f"sessions/{sid}/headline")["race"] if r["status_code"] == "DNS"}
+    stints = (load(f"sessions/{sid}/stints") or {}).get("stint_timeline", [])
+    drawn = sorted({s["driver_id"] for s in stints} & dns)
+    assert not drawn, f"stints drawn for DNS drivers {drawn}"

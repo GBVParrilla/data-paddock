@@ -106,7 +106,9 @@ def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str
         response = client.beta.messages.create(
             model=NARRATIVE_MODEL,
             max_tokens=NARRATIVE_MAX_TOKENS,
-            system=system,
+            # the system prompt (rules + worked examples) is the same for every story of a kind: cached,
+            # later calls read it at about a tenth of the input price (Haiku 5.5 caches from 512 tokens)
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user}],
             output_config={"effort": effort or NARRATIVE_EFFORT, "format": {"type": "json_schema", "schema": schema}},
             **fallback,
@@ -145,5 +147,6 @@ def generate_json(system: str, user: str, schema: dict[str, Any], *, effort: str
     except json.JSONDecodeError as exc:
         raise NarrativeGenerationError("Model response was not valid JSON") from exc
     usage = response.usage
-    log.info("narrative call: model=%s in=%s out=%s", response.model, getattr(usage, "input_tokens", "?"), getattr(usage, "output_tokens", "?"))
+    log.info("narrative call: model=%s in=%s cache_read=%s cache_write=%s out=%s", response.model, getattr(usage, "input_tokens", "?"),
+             getattr(usage, "cache_read_input_tokens", "?"), getattr(usage, "cache_creation_input_tokens", "?"), getattr(usage, "output_tokens", "?"))
     return data, response.model

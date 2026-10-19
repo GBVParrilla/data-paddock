@@ -9,6 +9,7 @@ import { Home } from './pages/Home'
 const RaceWeekend = lazy(() => import('./pages/RaceWeekend').then((m) => ({ default: m.RaceWeekend })))
 const SeasonPage = lazy(() => import('./pages/SeasonPage').then((m) => ({ default: m.SeasonPage })))
 const RacesPage = lazy(() => import('./pages/RacesPage').then((m) => ({ default: m.RacesPage })))
+import { ModeProvider } from './state/mode'
 import { StoreProvider } from './state/store'
 
 // Path routes. On GitHub Pages every shareable page is prerendered as its own HTML shell and
@@ -53,21 +54,23 @@ export default function App() {
       <EditorBadge />
       <BrowserRouter basename={BASENAME}>
         <ScrollTop />
-        <Shell>
-          <PageBoundary>
-            <Suspense fallback={<div className="wrap pt-10" aria-busy="true"><p className="label">Loading the page…</p><div className="skeleton h-10 w-72 mt-3" /><div className="skeleton h-64 mt-6" /></div>}>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/races" element={<RacesPage />} />
-              <Route path="/race/:eventId" element={<RaceWeekend />} />
-              <Route path="/race/:eventId/driver/:driverRef" element={<RaceWeekend />} />
-              <Route path="/season/:year" element={<SeasonPage />} />
-              <Route path="/season/" element={<Home />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-            </Suspense>
-          </PageBoundary>
-        </Shell>
+        <ModeProvider>
+          <Shell>
+            <PageBoundary>
+              <Suspense fallback={<div className="wrap pt-10" aria-busy="true"><p className="label">Loading the page…</p><div className="skeleton h-10 w-72 mt-3" /><div className="skeleton h-64 mt-6" /></div>}>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/races" element={<RacesPage />} />
+                <Route path="/race/:eventId" element={<RaceWeekend />} />
+                <Route path="/race/:eventId/driver/:driverRef" element={<RaceWeekend />} />
+                <Route path="/season/:year" element={<SeasonPage />} />
+                <Route path="/season/" element={<Home />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              </Suspense>
+            </PageBoundary>
+          </Shell>
+        </ModeProvider>
       </BrowserRouter>
     </StoreProvider>
   )

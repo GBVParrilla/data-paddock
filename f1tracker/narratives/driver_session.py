@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session as OrmSession
 from ..models import DriverSessionNarrative, Session
 from ..util import utcnow
 from .factcheck import check_story
-from .facts import build_driver_session_facts, story_context
+from .facts import build_driver_session_facts, prompt_sheet, story_context
 from .jobs import Outcome, StoryJob
 from .llm import stable_hash
 from .prompts import SCHEMA_DRIVER_STORY, SYSTEM_DRIVER_STORY
@@ -52,8 +52,9 @@ def plan_driver_session_narrative(db: OrmSession, session_id: int, driver_id: in
             db.add(row)
         row.session_type = session.session_type
         row.headline = data["headline"].strip()
-        row.summary = data["summary"].strip()
-        row.narrative_text = data["story"].strip()
+        # Essential and Expert go in the columns the site already reads (summary, narrative_text)
+        row.summary = data["essential"].strip()
+        row.narrative_text = data["expert"].strip()
         row.strategy_analysis_text = (data.get("analysis") or "").strip()
         row.key_numbers_json = json.dumps(data.get("key_numbers") or [])
         row.glossary_json = json.dumps(data.get("glossary_terms") or [])
@@ -67,7 +68,7 @@ def plan_driver_session_narrative(db: OrmSession, session_id: int, driver_id: in
         log.info("story session=%d driver=%d (%s): %s after %d attempt(s)", session_id, driver_id, session.session_type, "template" if outcome.fallback else "claude", outcome.attempts)
         return row
 
-    user = "FACT SHEET (JSON):\n" + json.dumps(sheet, indent=1, default=str, ensure_ascii=False)
+    user = "FACT SHEET (JSON):\n" + json.dumps(prompt_sheet(sheet), indent=1, default=str, ensure_ascii=False)
     job = StoryJob(f"driver story session={session_id} driver={driver_id}", SYSTEM_DRIVER_STORY, user, SCHEMA_DRIVER_STORY, save,
                    check=check, fallback=lambda: template_story(sheet))
     return existing, job

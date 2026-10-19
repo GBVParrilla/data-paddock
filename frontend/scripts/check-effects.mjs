@@ -6,7 +6,13 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const files = []
-const walk = (d) => readdirSync(d).forEach((f) => { const p = join(d, f); statSync(p).isDirectory() ? walk(p) : /\.(t|j)sx?$/.test(f) && files.push(p) })
+const walk = (d) => {
+  for (const f of readdirSync(d)) {
+    const p = join(d, f)
+    if (statSync(p).isDirectory()) walk(p)
+    else if (/\.(t|j)sx?$/.test(f)) files.push(p)
+  }
+}
 walk(new URL('../src', import.meta.url).pathname)
 
 const bad = []

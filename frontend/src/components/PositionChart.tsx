@@ -172,6 +172,10 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
               </div>
             )
           })}
+          <div className="flex items-center gap-1.5 label pt-1">
+            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4" fill="var(--bg)" stroke="var(--text-2)" strokeWidth="1.8" /></svg>
+            Pit stop
+          </div>
         </div>
       )}
     </div>
