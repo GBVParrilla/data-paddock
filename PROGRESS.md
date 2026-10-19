@@ -114,6 +114,37 @@ Template review for new-fan readability (1–5), 15 stories across the pilot rou
 
 Average 3.67 (target 3.5), none below 3. Worst: R17 Q Verstappen — "Max Verstappen qualified on pole. In Q2 Max Verstappen got through by 1.145s over the first car knocked out (Nico Hülkenberg). Teammate Isack Hadjar was P22." The pilot run is what tests the AI stories against the 4.3 gate.
 
+### Pilot (prompt v3): stories-only, rounds 1, 12 and 17, 19 Oct (run 39277498505)
+
+Pass rate: 317 of 324 session stories written by Claude (97.8%, gate 90%), 66 of 66 arcs, 139 of 139 head-to-heads. Attempts: 212 first try, 101 second, 11 third. The 7 fallbacks were rejected for lap times in Essential (4), a result-only headline (1) and weather temperatures such as "35.9C" (2–3; probably a checker bug, the number regex doesn't accept a trailing "C").
+
+The same 15 stories as the template review, scored 1–5 (accuracy, readability, insight, specificity, averaged):
+
+| Story | Score | Note |
+|---|---|---|
+| R1 R Russell | 4 | Clear cause and result |
+| R12 R Norris | 3.5 | Lead history confusing (Antonelli took it, Norris "regained it from Hamilton"); a whole Expert sentence on stationary times not being published |
+| R17 Q Verstappen | 3 | **Wrong**: Essential says "fastest in both final sectors", Expert says S1 and S3 (S2 was 6th); "a clean final push" is invented |
+| R12 S Piastri | 3.3 | "Norris … cost him the place he would have been looking for" is filler speculation |
+| R17 R Leclerc | 4 | Good |
+| R1 R Gasly | 4.3 | Best of the set: the unlucky VSC timing in plain words |
+| R12 R Alonso | 4.3 | Good; Expert reads like a list |
+| R17 R Hadjar | 3 | Weak headline ("climb … came without a pit-stop gain"); "softs over laps 2–62" contradicts his lap-33 stop (a data gap: the stints table has no stint after the stop); unexplained "overcut on Sainz" |
+| R1 Q Gasly | 3.8 | Analysis says "missed Q2" for a Q2 exit (should be Q3) |
+| R12 FP1 Lawson | 3.5 | "standing in for Red Bull" is invented; headline is a result, not a verdict |
+| R1 R Hadjar | 4 | Clear |
+| R17 R Stroll | 4.3 | Clear |
+| R12 Q Bottas | 2.5 | **Worst** (below) |
+| R17 S Pérez | 4 | Clear |
+| R12 R Colapinto | 3.5 | Headline "cost Colapinto 10 places" is the first stop; he finished where he started |
+
+Average 3.67 against a 4.3 gate; one story below 3. **Gate failed.** Worst, R12 Q Bottas:
+> "Valtteri Bottas knocked out in the first qualifying segment and will start P21 of 22. … His sectors ranked 21st, 22nd and 20nd of 22 … while the fastest Q1 time was 1:14.371 below his own. … Track temperature peaked at 35.9 C with rain reported during the session."
+
+Across all 317: one wrong ordinal ("20nd"), 104 stories spend words on data that isn't published, 10 use "the story of" filler, 7 quote weather temperatures, 3 say Lawson was "standing in", 2 call a top-5 sector "weakest". No published story breaks the checker's rules; the failures above are things the checker doesn't test.
+
+Fixes proposed for prompt v4 (not made yet): accept "35.9C" in the number check; check ordinal suffixes; check "S1/S2/S3" claims against sector ranks ("final sectors", "weakest"); check Q1/Q2/Q3 naming against the session exit; drop weather from the prompt sheet unless rain changed the order; one rule against mentioning missing data; one rule against motives and invented roles; flag stints that span a pit stop as a data gap.
+
 ## Round 2: decisions made
 
 | # | Decision | Alternatives | Why | Undo |
@@ -258,6 +289,7 @@ Local suite on the production snapshot (upgraded) + pilot turn deltas: unit 44 p
 |---|---|---|---|---|---|---|
 | Scheduled `full`, 2026-10-19 13:24 UTC (run 39259824231, `main` 35cff79) | v2 (round 1) | 800 cap: 532 session stories, 89 weekend arcs, 179 head-to-heads, rounds 1–5 | 528 of 532 session stories (99.2%), 88 of 89 arcs | 4 session stories, 1 arc | 613 attempts for 532 stories (465 first try, 53 second, 14 third) | `MAX_NEW_STORIES` wasn't set before this run. It also recomputed all 1,815 turn-by-turn breakdowns. Merging round 2 (prompt v3) puts these stories behind the new rules, so they show as templates until rewritten |
 
+| Pilot `stories-only`, 2026-10-19 ~15:30 UTC (run 39277498505), rounds 1, 12, 17 | v3 | 324 session stories, 66 arcs, 139 head-to-heads | 317 of 324 (97.8%), 66 of 66 arcs, 139 of 139 head-to-heads | 7 session stories | 459 attempts for 324 stories (212 first try, 101 second, 11 third) | Quality gate failed (3.67 vs 4.3); deploy job was still "waiting" when reviewed |
 
 No calls from this sandbox. Each workflow run now writes "Claude calls" and "published as fact-sheet templates" to the job summary; they will be copied here.
 
