@@ -254,6 +254,11 @@ Local suite on the production snapshot (upgraded) + pilot turn deltas: unit 44 p
 
 ## LLM usage log
 
+| Run | Prompt | Stories attempted | Published as Claude | Template fallbacks | Claude calls (session stories) | Notes |
+|---|---|---|---|---|---|---|
+| Scheduled `full`, 2026-10-19 13:24 UTC (run 39259824231, `main` 35cff79) | v2 (round 1) | 800 cap: 532 session stories, 89 weekend arcs, 179 head-to-heads, rounds 1–5 | 528 of 532 session stories (99.2%), 88 of 89 arcs | 4 session stories, 1 arc | 613 attempts for 532 stories (465 first try, 53 second, 14 third) | `MAX_NEW_STORIES` wasn't set before this run. It also recomputed all 1,815 turn-by-turn breakdowns. Merging round 2 (prompt v3) puts these stories behind the new rules, so they show as templates until rewritten |
+
+
 No calls from this sandbox. Each workflow run now writes "Claude calls" and "published as fact-sheet templates" to the job summary; they will be copied here.
 
 ## Next 3 actions
