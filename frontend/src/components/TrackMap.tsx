@@ -82,7 +82,7 @@ export function TrackMap({
           const tier = turns?.[t.number]
           return (
             <g key={t.number}>
-              {tier && tier !== 'none' && <circle cx={x} cy={y} r={14} fill={TIER_COLOR[tier]} />}
+              {tier && tier !== 'none' && <circle cx={x} cy={y} r={14} fill={TIER_COLOR[tier]} data-turn={t.number} data-tier={tier} />}
               <text x={x} y={y + 5} textAnchor="middle" fontSize={15} fontWeight={600} fill={tier && tier !== 'none' ? '#0c0e11' : 'var(--text-3)'}>{t.number}</text>
               <title>{`Turn ${t.number}`}</title>
             </g>

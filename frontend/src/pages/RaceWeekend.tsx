@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { api, eventApi, type Driver, type SessionRow, type SessionType } from '../api/client'
+import { api, eventApi, TURNS_UNRELIABLE, type Driver, type SessionRow, type SessionType } from '../api/client'
 import { Boundary, NotFound } from '../components/Boundary'
 import { Classification } from '../components/Classification'
 import { DeepDive } from '../components/DeepDive'
@@ -68,7 +68,7 @@ export function RaceWeekend() {
   const anns = useFetch((s) => api.chartAnnotations(sessionId!, s), [sessionId, ready], ready)
   const spot = useFetch((s) => api.midfieldSpotlight(sessionId!, false, s), [sessionId, ready], ready)
   const moments = useFetch((s) => api.pivotalMoments(sessionId!, s), [sessionId, ready], ready)
-  const turnIndex = useFetch((s) => api.turnDeltaDrivers(sessionId!, s), [sessionId, ready], ready)
+  const turnIndex = useFetch((s) => api.turnDeltaIndex(sessionId!, s), [sessionId, ready], ready)
 
   // /race/:id/driver/:ref (the shareable link for one driver's race): select that driver in the race
   useEffect(() => {
@@ -163,7 +163,7 @@ export function RaceWeekend() {
           <div className="lg:col-span-6 xl:col-span-7 flex flex-col gap-4 min-w-0">
             {mapFor && headline.data && (
               <Boundary label="The circuit map">
-                <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} selected={selected} mapIdx={mapIdx} onMapIdx={setMapDriver} turnDeltas={turnDeltas.data} />
+                <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} selected={selected} mapIdx={mapIdx} onMapIdx={setMapDriver} turnDeltas={turnDeltas.data} turnsNote={turnDeltas.error?.message === TURNS_UNRELIABLE ? TURNS_UNRELIABLE : undefined} />
               </Boundary>
             )}
             <Boundary label="Key moments">
@@ -213,7 +213,7 @@ export function RaceWeekend() {
               </button>
               {detailOpen && (
                 <div id={detailId} className="border-t" style={{ borderColor: 'var(--line)' }}>
-                  <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} turnsFor={turnIndex.data} /></Boundary>
+                  <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} turnsFor={turnIndex.data?.drivers ?? null} /></Boundary>
                 </div>
               )}
             </section>

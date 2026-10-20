@@ -20,13 +20,10 @@ export function rankTier(rank: number | null | undefined, of: number): Tier {
   return 'red'
 }
 
-/** Turn deltas vs the reference lap use fixed thresholds (ms). */
-export function turnTier(deltaMs: number | undefined): Tier {
-  if (deltaMs === undefined) return 'none'
-  if (deltaMs <= -30) return 'purple'
-  if (deltaMs <= 60) return 'green'
-  if (deltaMs <= 200) return 'yellow'
-  return 'red'
+/** Corner colours rank like sector colours: this corner time against every driver's in the session
+ * (REVIEW_ROUND3 #49; it used to be "beat the reference lap by 30ms", which painted a quarter of all corners purple). */
+export function turnTier(t: { rank?: number; of?: number } | undefined): Tier {
+  return rankTier(t?.rank, t?.of ?? 0)
 }
 
 export const TYRE: Record<string, { color: string; letter: string; label: string }> = {

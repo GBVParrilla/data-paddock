@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, fmtMs, type Detail, type Driver, type Headline } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
-import { isRaceLike, tyre, TYRE, turnTier, TIER_COLOR, UNKNOWN_TYRE } from '../lib/f1'
+import { isRaceLike, nth, tyre, TYRE, turnTier, TIER_COLOR, UNKNOWN_TYRE } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
 import { Term } from './Glossary'
 import { TierLegend } from './race/CircuitPanel'
@@ -79,17 +79,21 @@ function TurnByTurn({ sessionId, driver, headline }: { sessionId: number; driver
   return (
     <div>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mb-4">
-        <div><span className="label">{driver.code} best lap</span> <span className="num font-semibold">{fmtMs(t.lap_time_ms ?? null)}</span> <span className="label">lap {t.lap_number}</span></div>
+        <div><span className="label">{driver.code} {t.best_lap_number && t.best_lap_number !== t.lap_number ? 'measured lap' : 'best lap'}</span> <span className="num font-semibold">{fmtMs(t.lap_time_ms ?? null)}</span> <span className="label">lap {t.lap_number}</span></div>
         <div><span className="label">vs <Term k="reference">reference</Term> ({ref?.code ?? '–'}, lap {t.reference.lap_number})</span> <span className="num font-semibold">{fmtMs(t.reference.lap_time_ms ?? null)}</span></div>
         <div><span className="label">Total</span> <span className="num font-semibold">{t.total_lap_delta_ms > 0 ? '+' : ''}{(t.total_lap_delta_ms / 1000).toFixed(3)}s</span></div>
       </div>
+      {t.best_lap_number && t.best_lap_number !== t.lap_number && (
+        <p className="text-[13px] t2 mb-3">Measured on lap {t.lap_number}: the position data for his best lap, lap {t.best_lap_number}, is incomplete.</p>
+      )}
       <div className="space-y-1">
-        {t.turns.map((x) => bar(String(x.number), `T${x.number}`, x.delta_ms, TIER_COLOR[turnTier(x.delta_ms)], `${x.apex_speed_kph.toFixed(0)} km/h apex${x.from_m != null ? ` · ${Math.round(x.from_m)}–${Math.round(x.to_m ?? 0)} m` : ''}`))}
+        {t.turns.map((x) => bar(String(x.number), `T${x.number}`, x.delta_ms, TIER_COLOR[turnTier(x)], `${x.rank ? `${nth(x.rank)} of ${x.of} through here · ` : ''}${x.apex_speed_kph.toFixed(0)} km/h apex${x.from_m != null ? ` · ${Math.round(x.from_m)}–${Math.round(x.to_m ?? 0)} m` : ''}`))}
         {bar('rest', 'Other', rest, 'var(--none)', 'Timing that telemetry sampling can\'t place on a corner')}
       </div>
       <div className="grid grid-cols-[3.5rem_1fr_4.5rem] gap-2 mt-2 label"><span /><div className="flex justify-between"><span>Gained</span><span>Lost</span></div><span /></div>
       <p className="label mt-3">Each corner covers the track from halfway after the previous corner to halfway before the next, so the rows add up to the total. "Other" is what the timing loops measured but the position telemetry can't place.</p>
-      <div className="mt-3"><TierLegend turns /></div>
+      <p className="label mt-3">Bar length: time gained or lost against the reference lap. Colour: where the corner ranks among every driver measured, as for sectors.</p>
+      <div className="mt-2"><TierLegend /></div>
     </div>
   )
 }
