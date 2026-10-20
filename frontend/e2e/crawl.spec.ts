@@ -159,7 +159,7 @@ test('every race and every session tab, via in-app links', async ({ page }, info
 })
 
 for (const round of PILOT_ROUNDS) {
-  test(`round ${round}: one driver, two drivers, every deep-dive tab, every session`, async ({ page }) => {
+  test(`round ${round}: one driver, then another, every deep-dive tab, every session`, async ({ page }) => {
     const w = watch(page)
     await page.goto('./')
     await openRound(page, round)
@@ -175,8 +175,21 @@ for (const round of PILOT_ROUNDS) {
       await expect(rows.nth(10)).toBeVisible()
       await rows.nth(9).click()
       await check(page, w, `R${round} ${name}: one driver`)
+      // REVIEW_ROUND3 #50: a second tap switches the selection; it never stacks a second story or a head-to-head
+      const second = Number(await rows.nth(10).getAttribute('data-driver'))
       await rows.nth(10).click()
-      await check(page, w, `R${round} ${name}: two drivers`)
+      await expect(page.locator('section[aria-label="Classification"] tr[aria-selected="true"]')).toHaveCount(1)
+      await expect(page.locator('section[aria-label$="\'s weekend"]')).toHaveCount(1)
+      await expect(page.locator(`section[aria-label="Classification"] tr[data-driver="${second}"]`)).toHaveAttribute('aria-selected', 'true')
+      // the vs strip is part of the panel for every driver who took part
+      const ran = await page.evaluate(async (d) => {
+        const sid = document.querySelector('[data-session]')?.getAttribute('data-session')
+        const h = await (await fetch(`${document.baseURI.replace(/\/(race|season|races)(\/.*)?(\?.*)?$/, '/')}data/sessions/${sid}/headline.json`)).json()
+        const row = (h.race ?? h.qualifying ?? h.practice ?? []).find((r: { driver_id: number }) => r.driver_id === d)
+        return !!row && row.status_code !== 'DNS' && row.status_code !== 'NO_TIME' && (row.rank === undefined || row.rank !== null)
+      }, second)
+      if (ran) await expect(page.locator('section[aria-label$="\'s weekend"] [data-vs]')).toHaveCount(1)
+      await check(page, w, `R${round} ${name}: another driver`)
       await openMoreDetail(page)
       const dd = page.getByRole('region', { name: 'Deep dive' }).getByRole('tab')
       if (name === 'Race') {
@@ -246,11 +259,15 @@ test('a driver\'s race has its own page', async ({ page }) => {
   await check(page, w, 'driver race page')
 })
 
-test('Expert mode opens more detail and the full story, and survives a shared link', async ({ page }) => {
+test('Expert mode shows the debrief and opens more detail, and survives a shared link', async ({ page }) => {
   const w = watch(page)
   await page.goto('race/1/driver/gasly?mode=expert')
   const story = page.getByRole('region', { name: "Pierre Gasly's weekend" })
   await expect(story).toBeVisible()
+  // REVIEW_ROUND3 D7: Expert is the computed debrief (findings and tables), not more prose
+  await expect(story.locator('[data-debrief="race"]')).toBeVisible()
+  await expect(story.getByRole('list', { name: 'Findings' })).toBeVisible()
+  await expect(story.locator('[data-essential]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /more detail/i })).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('region', { name: 'Deep dive' })).toBeVisible()
   await expect(page.getByRole('radio', { name: 'Expert' })).toBeChecked()
@@ -283,4 +300,53 @@ test('corner colours are ranks, and a withheld breakdown colours no corner (REVI
     await expect.soft(circuit.locator(`circle[data-turn="${t.number}"]`).first(), `T${t.number}`).toHaveAttribute('data-tier', tierOf(t.rank, t.of))
   }
   await check(page, w, 'ranked corners')
+})
+
+test('one driver per tap: vs links restore exactly, old two-driver links redirect, the strip stays short (REVIEW_ROUND3 #50)', async ({ page }) => {
+  const w = watch(page)
+  // R1 race: Gasly (Alpine); Ocon is a rival, Colapinto the teammate
+  const h = await (await page.request.get('data/sessions/' + (await (await page.request.get('data/events/1/sessions.json')).json() as { id: number; session_type: string }[]).find((s) => s.session_type === 'R')!.id + '/headline.json')).json() as { session: { id: number }; drivers: Record<string, { driver_ref: string; team: string }> }
+  const id = (ref: string) => Number(Object.entries(h.drivers).find(([, d]) => d.driver_ref === ref)![0])
+  const sid = h.session.id
+  const [gas, oco, col] = [id('gasly'), id('ocon'), id('colapinto')]
+  const panel = page.locator('section[aria-label$="\'s weekend"]')
+
+  await page.goto(`race/1?session=${sid}&drivers=${gas}`)
+  await expect(panel).toHaveCount(1)
+  await expect(panel.locator('[data-vs]')).toHaveAttribute('data-vs', String(col))  // the teammate by default
+  const without = await page.evaluate(() => document.documentElement.scrollHeight)
+
+  await page.goto(`race/1?session=${sid}&drivers=${gas}&vs=${oco}`)
+  await expect(panel.locator('[data-vs]')).toHaveAttribute('data-vs', String(oco))
+  await expect(page.getByRole('combobox', { name: 'Compare with' })).toHaveValue(String(oco))
+  expect(new URL(page.url()).searchParams.get('vs')).toBe(String(oco))
+  const withVs = await page.evaluate(() => document.documentElement.scrollHeight)
+  expect(withVs - without, 'a vs page is at most 900px taller').toBeLessThanOrEqual(900)
+  const strip = await panel.locator('[data-vs]').boundingBox()
+  expect(strip!.height, 'the vs strip').toBeLessThanOrEqual(900)
+  await check(page, w, 'vs link')
+
+  // a link from before D8: drivers=a,b opens a with vs b
+  await page.goto(`race/1?session=${sid}&drivers=${gas},${oco}`)
+  await expect(panel).toHaveCount(1)
+  await expect(panel.locator('[data-vs]')).toHaveAttribute('data-vs', String(oco))
+  await expect.poll(() => new URL(page.url()).searchParams.get('drivers')).toBe(String(gas))
+  expect(new URL(page.url()).searchParams.get('vs')).toBe(String(oco))
+
+  // Compare with... is a plain list; picking from it changes the strip and the link
+  await page.getByRole('combobox', { name: 'Compare with' }).selectOption(String(col))
+  await expect(panel.locator('[data-vs]')).toHaveAttribute('data-vs', String(col))
+  await expect.poll(() => new URL(page.url()).searchParams.get('vs')).toBe(String(col))
+  // "Read X's story" switches the selection
+  await panel.getByRole('button', { name: /Read Colapinto's story/ }).click()
+  await expect(page.getByRole('region', { name: "Franco Colapinto's weekend" })).toBeVisible()
+  await check(page, w, 'switched by the strip')
+})
+
+test('the methods page explains the computed numbers', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('methods')
+  await expect(page.locator('h1')).toHaveText('How the numbers are made')
+  for (const id of ['fuel', 'degradation', 'stops', 'ranks', 'corners']) await expect(page.locator(`#${id}`)).toBeVisible()
+  await check(page, w, 'methods')
 })

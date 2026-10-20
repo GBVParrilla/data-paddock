@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react'
 import { api, type Driver, type Headline, type SessionRow, type SessionType, type WeekendArc } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
-import { nth, SESSION_SHORT, SESSION_TINY } from '../lib/f1'
+import { SESSION_SHORT, SESSION_TINY } from '../lib/f1'
 import { useMode } from '../state/mode'
 import { asSource, useStorySource } from '../state/sources'
 import { Term } from './Glossary'
+import { Debrief } from './Debrief'
 import { StoryMeta } from './StoryMeta'
 
 function resultIn(h: Headline, id: number): string {
@@ -30,17 +32,17 @@ function WeekendLine({ arc }: { arc: WeekendArc }) {
   )
 }
 
-/** One driver through the weekend: result in each session (click to switch), then the story.
- * Essential: verdict headline, what happened, up to three numbers. Expert: the full story, every key number
- * and the sector ranks inline (decision D5). */
-export function DriverStory({ eventId, sessionId, sessions, driver, color, onSession, sectorRanks }: {
+/** One driver through the weekend: result in each session (click to switch), then the story, then the vs strip
+ * (`children`). Essential: the verdict headline, what happened, up to three numbers. Expert: the same headline over
+ * the engineer's debrief computed in code, instead of more prose (REVIEW_ROUND3 D7). */
+export function DriverStory({ eventId, sessionId, sessions, driver, color, onSession, children }: {
   eventId: number
   sessionId: number
   sessions: SessionRow[]
   driver: Driver
   color: string
   onSession: (id: number) => void
-  sectorRanks?: { sec: number; rank: number; of: number }[] | null
+  children?: ReactNode
 }) {
   const { expert } = useMode()
   const ready = sessions.filter((s) => s.ingestion.transforms)
@@ -49,6 +51,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
   const arc = useFetch((s) => api.weekendArc(eventId, driver.id, s), [eventId, driver.id])
   const current = sessions.find((s) => s.id === sessionId)
   const route = `/race/${eventId}?session=${sessionId}&drivers=${driver.id}`
+  const debrief = expert ? story.data?.debrief : null
 
   return (
     <section className="panel overflow-hidden" aria-label={`${driver.name}'s weekend`}>
@@ -68,7 +71,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
               <button key={s.id} role="tab" aria-selected={on} onClick={() => onSession(s.id)}
                 className={`px-3 py-1.5 rounded-lg text-left border ${on ? 'bg-[var(--panel-2)] border-[var(--line-2)]' : 'border-transparent hover:bg-[var(--hover)]'}`}>
                 <div className="text-[11px] t3 font-medium">{SESSION_TINY[s.session_type as SessionType]}</div>
-                <div className="text-[13px] font-semibold num min-w-[2.2rem]">{res || ' '}</div>
+                <div className="text-[13px] font-semibold num min-w-[2.2rem]">{res || ' '}</div>
               </button>
             )
           })}
@@ -81,51 +84,30 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
         {story.loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-4" style={{ width: `${90 - i * 12}%` }} />)}</div>}
         {story.error && <p className="t2">{story.error.message}</p>}
         {story.data && (
-          <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-x-10 gap-y-6">
-            <div>
-              <div className="kicker">{current ? SESSION_SHORT[current.session_type as SessionType] : ''}</div>
-              {story.data.headline && <h3 className="display font-bold text-[22px] leading-tight mt-1.5">{story.data.headline}</h3>}
-              {story.data.summary && <p className="text-[15.5px] mt-2.5 leading-relaxed">{story.data.summary}</p>}
-              {!!story.data.key_numbers?.length && (
-                <dl className="flex flex-wrap gap-x-6 gap-y-3 mt-4">
-                  {story.data.key_numbers.slice(0, expert ? undefined : 3).map((k) => (
-                    <div key={k.label}><dt className="label">{k.label}</dt><dd className="stat num !text-[19px] mt-0.5">{k.value}</dd></div>
-                  ))}
-                </dl>
-              )}
-              {expert && sectorRanks && (
-                <p className="text-[13px] t2 mt-3" data-expert="sector-ranks">
-                  <span className="label mr-2">Sectors</span>
-                  {sectorRanks.map((r) => `S${r.sec} ${nth(r.rank)}`).join(' · ')} <span className="t3">of {sectorRanks[0].of} who set a time</span>
-                </p>
-              )}
-              {story.data.narrative_text && (  // prompt v4 stories have none: Expert is the computed debrief (REVIEW_ROUND3 D7)
-              <details key={`${story.data.story_key}-${expert}`} className="mt-5 group" open={expert || !story.data.summary}>
-                <summary className="cursor-pointer list-none text-[13px] font-medium inline-flex items-center gap-1.5 hover:text-[var(--text)] t2">
-                  <span className="group-open:hidden">Read the full story</span><span className="hidden group-open:inline">Hide the full story</span>
-                  <span aria-hidden="true" className="transition-transform group-open:rotate-90">›</span>
-                </summary>
-                <div className="prose mt-3 space-y-3">{story.data.narrative_text.split(/\n\s*\n/).map((p, i) => <p key={i}>{p}</p>)}</div>
-              </details>
-              )}
-            </div>
-            {story.data.strategy_analysis_text && (
-              <div className="lg:border-l lg:pl-8" style={{ borderColor: 'var(--line)' }}>
-                <h3 className="label mb-2 flex items-center gap-2">
-                  Analysis
-                  <span className="chip !text-[11px] !py-0"><Term k="interpretation">Interpretation</Term></span>
-                </h3>
-                <p className="prose-2">{story.data.strategy_analysis_text}</p>
-              </div>
+          <div className="max-w-3xl">
+            <div className="kicker">{current ? SESSION_SHORT[current.session_type as SessionType] : ''}</div>
+            {story.data.headline && <h3 className="display font-bold text-[22px] leading-tight mt-1.5">{story.data.headline}</h3>}
+            {debrief ? <Debrief d={debrief} /> : (
+              <>
+                {story.data.summary && <p className="text-[15.5px] mt-2.5 leading-relaxed" data-essential>{story.data.summary}</p>}
+                {!!story.data.key_numbers?.length && (
+                  <dl className="flex flex-wrap gap-x-6 gap-y-3 mt-4">
+                    {story.data.key_numbers.slice(0, 3).map((k) => (
+                      <div key={k.label}><dt className="label">{k.label}</dt><dd className="stat num !text-[19px] mt-0.5">{k.value}</dd></div>
+                    ))}
+                  </dl>
+                )}
+              </>
             )}
           </div>
         )}
         {story.data && (
           <div className="mt-6">
-            <StoryMeta info={story.data} route={route} story={{ title: `${driver.name} · ${current?.session_type} · ${story.data.story_key.split('/')[1]}`, text: story.data.narrative_text, analysis: story.data.strategy_analysis_text, generatedAt: story.data.generated_at ?? '' }} />
+            <StoryMeta info={story.data} route={route} story={{ title: `${driver.name} · ${current?.session_type} · ${story.data.story_key.split('/')[1]}`, text: story.data.summary ?? '', generatedAt: story.data.generated_at ?? '' }} />
           </div>
         )}
       </div>
+      {children}
     </section>
   )
 }

@@ -67,6 +67,7 @@ function card({ kicker, title, line, sub, color, points }) {
 }
 
 const seasons = read('seasons') ?? []
+pages.push({ path: 'methods', title: 'How the numbers are made · Data Paddock', description: 'How every computed figure on Data Paddock is made: fuel-corrected pace, degradation, pit-stop places, cut lines, sector and corner ranks.' })
 for (const season of seasons) {
   const year = season.year
   const events = read(`seasons/${year}/events`) ?? []

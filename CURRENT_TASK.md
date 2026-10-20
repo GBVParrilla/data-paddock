@@ -7,8 +7,8 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 
 ## Order of work
 1. PR 1, Workstream F (turn-by-turn, #48, #49): merged (PR #7, 20 Oct).
-2. **PR 2, Workstream H pipeline: built and pushed; waiting for the owner to merge, then the owner runs the pilot** (stories-only, rounds 1,12,17, max_new_stories 800). Then score the same 15 stories (list in PROGRESS.md round 2 "Pilot") against the gate: average ≥ 4.3, none below 3, ≤ 10% of a session's headlines sharing a shape, no missing-data sentences. Don't change stories until the owner reports the pilot finished.
-3. PR 3, Workstreams G and H UI: `selectDriver`, `vs=`, the vs strip, the Expert debrief view and a methods page. Build it while the pilot runs.
+2. PR 2, Workstream H pipeline: merged (PR #8, 20 Oct). **The owner runs the pilot** (stories-only, rounds 1,12,17, max_new_stories 800). Then score the same 15 stories (list in PROGRESS.md round 2 "Pilot") against the gate: average ≥ 4.3, none below 3, ≤ 10% of a session's headlines sharing a shape, no missing-data sentences. Don't change stories until the owner reports the pilot finished.
+3. **PR 3, Workstreams G and H UI: built and pushed; waiting for the owner to merge.** `selectDriver`, `vs=`, the vs strip, the Expert debrief view, `/methods`.
 4. PR 4, Workstream E (Circuit atlas).
 5. Small PRs: spoiler-free mode, follow a driver, a changelog.
 
@@ -29,5 +29,6 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 - Never ask questions. Record each call under "Decisions made" in the PR and in PROGRESS.md.
 
 ## Next steps
-1. Owner merges PR 2 and runs the pilot.
-2. Restart the branch from `main` after the merge and build PR 3 (G + H UI) while the pilot runs.
+1. Owner runs the pilot and merges PR 3.
+2. Score the pilot when reported finished.
+3. Restart the branch from `main` after PR 3 merges and build PR 4 (Circuit atlas).
