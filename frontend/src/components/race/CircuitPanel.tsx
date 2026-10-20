@@ -4,12 +4,12 @@ import { sectorTiers, type SectorStat } from '../../lib/sectors'
 import { sectorTitle } from '../../lib/takeaways'
 import { TrackMap } from '../TrackMap'
 
-export function TierLegend({ turns }: { turns?: boolean }) {
+export function TierLegend() {
   const tiers: Tier[] = ['purple', 'green', 'yellow', 'red']
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 label">
       {tiers.map((t) => (
-        <span key={t} className="flex items-center gap-1.5"><span className="dot" style={{ background: TIER_COLOR[t] }} />{turns ? { purple: 'Gained', green: 'Matched', yellow: 'Lost a little', red: 'Lost most', none: '' }[t] : TIER_LABEL[t]}</span>
+        <span key={t} className="flex items-center gap-1.5"><span className="dot" style={{ background: TIER_COLOR[t] }} />{TIER_LABEL[t]}</span>
       ))}
     </div>
   )
@@ -40,13 +40,16 @@ export function SectorStrip({ outline, stats, headline }: { outline: TrackOutlin
 
 /** The circuit in its real shape, coloured by where the selected driver ranked in each sector
  * (and, when telemetry allows, through each corner). Shown once a driver is picked. */
-export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor, selected, mapIdx, onMapIdx, turnDeltas }: {
+export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor, selected, mapIdx, onMapIdx, turnDeltas, turnsNote }: {
   outline: TrackOutline | null; outlineLoading: boolean; stats: SectorStat[]; headline: Headline
   mapFor?: Driver; selected: Driver[]; mapIdx: number; onMapIdx: (i: number) => void; turnDeltas: TurnDeltas | null
+  /** Why the corners aren't coloured, when the breakdown was withheld (only sector colours are drawn then). */
+  turnsNote?: string
 }) {
   const tiers = sectorTiers(stats, mapFor?.id)
-  const turnTiers = turnDeltas && !turnDeltas.is_reference_lap
-    ? Object.fromEntries(turnDeltas.turns.map((t) => [t.number, turnTier(t.delta_ms)])) as Record<number, Tier> : undefined
+  // corner colours are ranks across the session, the same scale as the sectors (#49)
+  const turnTiers = turnDeltas
+    ? Object.fromEntries(turnDeltas.turns.map((t) => [t.number, turnTier(t)])) as Record<number, Tier> : undefined
   return (
     <section className="panel flex-1 flex flex-col" aria-label="Circuit">
       <div className="panel-head">
@@ -59,7 +62,10 @@ export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor,
         {outline ? <TrackMap outline={outline} sectors={tiers} turns={turnTiers} showTurns stroke={11} className="w-full max-h-[460px]" />
           : <span className="label">{outlineLoading ? '' : 'Circuit map unavailable'}</span>}
       </div>
-      <div className="px-4 pb-3"><TierLegend /></div>
+      <div className="px-4 pb-3">
+        {turnsNote && mapFor && <p className="text-[13px] t2 mb-2">{turnsNote} The map shows {mapFor.name}'s sectors only.</p>}
+        <TierLegend />
+      </div>
       <div className="grid grid-cols-3 border-t" style={{ borderColor: 'var(--line)' }}>
         {stats.map((s, i) => {
           const t: Tier = tiers?.[i] ?? 'none'

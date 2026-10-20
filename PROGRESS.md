@@ -3,6 +3,121 @@
 The working memory for the overhaul in `LONG_RUN_PROMPT.md` against the audit in `REVIEW.md`.
 Re-read this file whenever resuming.
 
+# Round 3
+
+Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findings #48–#60, decisions D6–D8). Started 2026-10-20 from `main` at 3ab9aa4 (PR #6 merged), on the latest `db-snapshot` (the pilot run).
+
+## Round 3: current workstream
+
+**F (turn-by-turn)**: PR 1 open. Then **H pipeline** (PR 2), **G + H UI** (PR 3), **E** (PR 4).
+
+## Round 3: deviations from the prompt
+
+| Prompt says | What this run does | Why |
+|---|---|---|
+| One PR per workstream, each from the latest `main` | One workstream at a time on `claude/laughing-clarke-t71435`. The next starts from `main` after the previous PR merges | This session may push only to that branch (as in round 2) |
+| Merge the two docs-only commits separately | They ride in PR 1 with the review and the prompt (`docs/REVIEW_ROUND3.md`, `docs/LONG_RUN_PROMPT_ROUND3.md`) | Same branch. They are docs only |
+| #48 is "a lap-start distance offset" | Four causes, all fixed at the source (below) | Measured on the 51 breakdowns |
+
+## Round 3: checklist
+
+| # | Sev | Finding | Workstream | Status |
+|---|---|---|---|---|
+| 48 | P0 | Turn-by-turn alignment broken in 51 breakdowns | F | fixed in PR 1 (evidence below: 4 invariants failed before, pass after; crawl `corner colours are ranks…`; Baku FP1 screenshots) |
+| 49 | P1 | Purple meant "beat the reference by 30ms" | F | fixed in PR 1 (purple share 24.1% → 4.8%; `test_exactly_one_driver_is_purple_at_each_corner`) |
+| 50 | P1 | Selecting drivers is ambiguous | G | open |
+| 51 | P1 | Expert barely differs from Essential | H | open |
+| 52 | P1 | Factual slips in pilot stories | H | open |
+| 53 | P1 | Repetitive headlines within a session | H | open |
+| 54 | P2 | Talking about missing data | H | open |
+| 55 | P2 | Rankings out of one, decimal points | H | open |
+| 56 | P2 | A lap-1 retirement with "no stated reason" | H | open |
+| 57 | P2 | Home repeats the driver's name | H | open |
+| 58 | P2 | DNS template repeats its own summary | H | open |
+| 59 | P1 | Generic dark-card look | E | open |
+| 60 | P2 | The checker would ban a true fact ("standing in") | H | open. The round 2 pilot review was wrong to call Lawson's "standing in" invented: he drove for Red Bull at rounds 12–14 |
+
+### #48 and #49: what was wrong (Workstream F)
+
+Measured on the 1,815 cached breakdowns in the snapshot. 51 have a corner off by more than 3s, across 18 sessions. Each was re-fetched from OpenF1 and examined. There are four causes. None of them is a distance offset in the polyline itself:
+
+- **Frozen location feed.** Baku FP1 Norris lap 10: all 410 samples sit at one x/y. Every sample was projected onto distance 0, so the whole lap time landed in T1 (+98.9s) and every other corner read as the reference's time, negated. Baku FP1 drivers 12, 15 and 20 and Zandvoort FP1 driver 17 are the same.
+- **A broken reference lap breaks the whole session.** Session 16 FP1: the session-best lap's telemetry covers 1,395m of a 5,355m lap, so 21 of 22 drivers were wrong. Monza FP2 (session 67): the reference trace keeps its lap time but puts 2.6s of T2 into T1, so every driver read −2.6s at T1 and +2.5s at T2.
+- **Holes and doubled samples.** For example, session 11 driver 8 has 3,614m of a 5,762m lap, and session 20 driver 4 has a 7,899m path.
+- **Genuinely slow laps.** A best lap 15–55s off the pace (traffic, a safety car, a cool-down lap) gives corner deltas that don't describe driving.
+
+The old method assumed the fetch window started exactly on the line and never checked the trace. The invariant only checked that corners plus remainder equal the lap delta, which all of these still did.
+
+**Fix (turn-delta version 3, `analysis/turns.py`):**
+
+- Each lap is fetched with 5s either side and anchored on where its own telemetry crosses the line. The projection is circular, so it walks across the line.
+- The trace must reproduce the official lap time to within 1s, have no hole over 2.5s, and stay within 25m (median) of the outline. Otherwise it is rejected with the reason.
+- The reference is the fastest lap whose trace passes and agrees, corner by corner, with another clean lap.
+- A driver whose best lap fails is measured on their next lap within 1% of it, or not at all.
+- Each corner now carries `corner_ms`, the driver's own time through it.
+
+**Export gate and ranks (`rank_session_corners`):**
+
+- A breakdown is withheld when a corner exceeds max(1.5s, 20% of the corner), when the absolute deltas exceed |lap delta| + max(3s, 0.2s a corner), or when the remainder exceeds 3s.
+- A session where most breakdowns fail is withheld whole, because the reference lap is then suspect. Fewer than 3 drivers are never ranked.
+- The rest are ranked per corner across the session (ties go to the faster lap, then the lower driver id). Ranks compare drivers measured against the same reference lap, so a delta ranks exactly as the corner time would.
+- The index lists withheld drivers. Their circuit map shows sectors only, with "Corner times aren't reliable for this lap".
+- `turnTier` now maps rank to colour exactly as sectors do. The 30/60/200ms tiers are gone.
+
+**Evidence:**
+
+| Check | Before (main, snapshot) | After (this branch, same snapshot) |
+|---|---|---|
+| `test_no_exported_corner_delta_is_implausible` | fails: 173 breakdowns (e.g. 71/19 T1 +98,884ms) | passes; 127 withheld, 1,688 shown (sessions 16 and 67 withheld whole: broken references) |
+| `test_exactly_one_driver_is_purple_at_each_corner` | fails: 1,135 corners | passes |
+| `test_a_slow_sector_is_never_purple_all_the_way_through` | fails: 8 (e.g. Zandvoort FP1 driver 17 S2 ranked 19th) | passes |
+| `test_purple_corners_are_rare` | fails: 24.1% | passes: 4.8% |
+| Unit `tests/test_turns.py` (9): frozen feed, hole, wrong lap time, shifted start, gate, ranks, a suspect session | — | pass |
+| Crawl (20, desktop and mobile), new `corner colours are ranks, and a withheld breakdown colours no corner` | — | 20/20 |
+| Sessions 16, 67 and 71 recomputed with version 3 (63 ok, 3 unavailable), then exported | — | 238 invariants pass; 1,730 shown, 82 withheld site-wide; Baku FP1 0 withheld, session 16 0, Monza FP2 3 |
+| Re-fetched with v3: 71/19 (Norris) | T1 +98.9s | lap 6 (lap 10's feed is frozen), every corner within ±0.9s, lap delta 2.29s |
+| Re-fetched with v3: 67/2 (Monza FP2) | T1 −2.6s, T2 +2.5s | within ±0.31s (a reference that agrees with another lap) |
+| Re-fetched with v3: 16/2 (session 16 FP1) | +12.0s / −37.3s | within ±0.38s |
+
+Screenshots, Baku FP1 Norris:
+
+- `docs/screenshots/round3/f-before-baku-fp1-norris.png`: purple everywhere, against sector ranks of 4th, 9th and 20th.
+- `f-after-baku-fp1-norris-withheld.png`: this snapshot, sectors only, with the note.
+- `f-after-recompute-baku-fp1-norris.png`: version 3, measured on lap 6. Green and yellow in S1, red and yellow in S3, and one purple corner.
+
+One more bug found on the way: a turn-delta failure was raised inside the database session, which then rolled back. So the failure was never stored and the old breakdown stayed. `precompute_turn_deltas` now catches it inside the session.
+
+Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the gate, ranked by delta. No session loses its tab because of the version bump.
+
+## Round 3: decisions made
+
+| # | Decision | Alternatives | Why | Undo |
+|---|---|---|---|---|
+| F1 | A driver whose best lap has broken telemetry is measured on their next lap within 1% of it; the breakdown says which lap (`lap_number`, `best_lap_number`) | Withhold; any lap | A frozen feed on one lap shouldn't hide a driver, but a lap more than 1% slower describes a different lap | `FALLBACK_SLOWER` in `analysis/turns.py` |
+| F2 | Version 2 breakdowns stay on the site behind the plausibility gate until the recompute | Withhold all until recomputed | Hiding 1,642 good breakdowns for a day helps nobody; the gate already removes every broken one | `TURN_DELTA_VERSIONS_SHOWN` |
+| F3 | No separate recompute switch: version 3 marks every cached breakdown stale, and the daily `full` run recomputes them within its 270-minute budget (about 70 minutes of OpenF1 downloads, no Claude calls with `MAX_NEW_STORIES` 0) | A workflow input | The scheduled run already does this; one less control | bump `TURN_DELTA_VERSION` |
+| F4 | A withheld breakdown keeps the turn-by-turn tab hidden and puts the note under the circuit map | Show the tab with the note | The map is where the wrong colours were; an empty tab is clutter | `CircuitPanel` `turnsNote` |
+| F5 | The reference must agree, corner by corner, with another clean lap (within the gate) | Trust the fastest lap that passes the timing check | Monza FP2: a reference trace can match its lap time and still misplace 2.6s | `_reference` |
+| F6 | "Corners cancel out" allows \|lap delta\| + max(3s, 0.2s a corner), not a flat 3s | The prompt's flat 3s | Clean version 3 laps at Baku (20 corners) measure 1.0–3.9s over; a flat 3s withheld 5 of 22 good ones. Misaligned laps measured 13s and more | `cancel_slack_ms` |
+| F7 | A session where most breakdowns fail is withheld whole; fewer than 3 drivers are never ranked | Show what passes | Session 16 (version 2): the broken reference itself was the only breakdown left, ranked "1st of 1" everywhere | `rank_session_corners`, `MIN_RANKED` |
+
+## Round 3: owner actions
+
+1. **Merge PR 1** (Workstream F, with the round 3 docs and the two round 2 docs commits).
+2. Nothing else for F: the next daily run recomputes the corner times (no Claude calls). Tell me when it has run and I'll check the live site.
+
+## Round 3: scorecard log
+
+| Date | Commit | Total | A | B | C | D | E | F | Gate |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-19 | 3ab9aa4 | 75 | 26/32 | 14/14 | 7/16 | 10/12 | 7/12 | 11/14 | passes (reviewer's scores) |
+
+## Round 3: next 3 actions
+
+1. Owner: merge PR 1.
+2. Me: PR 2 (Workstream H pipeline: checker, prompt v4, data fixes, `debrief`), then list the pilot under owner actions.
+3. Me: PR 3 (one-driver selection, vs strip, Expert debrief view, methods page) while the pilot runs.
+
 # Round 2
 
 Prompt: `docs/LONG_RUN_PROMPT_ROUND2.md`. Review: `docs/REVIEW_ROUND2.md`. Started 2026-10-18 on `main` at 35cff79 (PR #5 merged).

@@ -88,10 +88,11 @@ export interface TrackOutline {
   orientation?: 'f1' | 'estimated'
   source: { session_id: number; driver_id: number; lap_number: number }; note: string
 }
-export interface TurnDelta { number: number; sector: 1 | 2 | 3; distance_m: number; from_m?: number; to_m?: number; apex_speed_kph: number; delta_ms: number }
+/** `rank` of `of`: where this corner time ranks among every driver measured in the session (1 = fastest of all). */
+export interface TurnDelta { number: number; sector: 1 | 2 | 3; distance_m: number; from_m?: number; to_m?: number; apex_speed_kph: number; delta_ms: number; corner_ms?: number; rank: number; of: number }
 /** Corners + unattributed_ms = total_lap_delta_ms = lap_time_ms - reference.lap_time_ms. */
 export interface TurnDeltas {
-  version?: number; session_id: number; driver_id: number; lap_number: number; lap_time_ms?: number; is_reference_lap: boolean
+  version?: number; session_id: number; driver_id: number; lap_number: number; best_lap_number?: number; lap_time_ms?: number; is_reference_lap: boolean
   reference: { session_id: number; driver_id: number; lap_number: number; lap_time_ms?: number }
   turns: TurnDelta[]; total_lap_delta_ms: number; unattributed_ms?: number; note: string
 }
@@ -190,18 +191,22 @@ export const api = {
     get<MidfieldStory | null>(`/sessions/${sessionId}/midfield-spotlight?generate=${generate}`, s, `sessions/${sessionId}/midfield-spotlight`, 'No midfield story stood out in this session.'),
   compare: (sessionId: number, a: number, b: number, generate: boolean, s?: AbortSignal) =>
     STATIC ? staticCompare(sessionId, a, b, s) : get<Comparison>(`/sessions/${sessionId}/compare?driver_a=${a}&driver_b=${b}&generate=${generate}`, s),
-  /** Static site: the drivers with a turn-by-turn breakdown in this session. Live API: null (computed on request). */
-  turnDeltaDrivers: async (sessionId: number, s?: AbortSignal): Promise<number[] | null> =>
-    STATIC ? (await get<{ drivers: number[] }>('', s, `sessions/${sessionId}/turn-deltas`)).drivers : null,
+  /** Static site: the drivers with a turn-by-turn breakdown in this session, and those whose breakdown failed the
+   * plausibility check. Live API: null (computed on request). */
+  turnDeltaIndex: async (sessionId: number, s?: AbortSignal): Promise<{ drivers: number[]; withheld: number[] } | null> =>
+    STATIC ? get<{ drivers: number[]; withheld?: number[] }>('', s, `sessions/${sessionId}/turn-deltas`).then((i) => ({ drivers: i.drivers, withheld: i.withheld ?? [] })) : null,
   turnDeltas: async (sessionId: number, driverId: number, s?: AbortSignal) => {
     // ask the index first: a breakdown that isn't exported would be a 404 in the console (REVIEW_ROUND2 #48)
-    const have = await api.turnDeltaDrivers(sessionId, s)
-    if (have && !have.includes(driverId)) throw new ApiError(404, TURNS_MISSING)
+    const index = await api.turnDeltaIndex(sessionId, s)
+    if (index?.withheld.includes(driverId)) throw new ApiError(404, TURNS_UNRELIABLE)
+    if (index && !index.drivers.includes(driverId)) throw new ApiError(404, TURNS_MISSING)
     return get<TurnDeltas>(`/sessions/${sessionId}/drivers/${driverId}/turn-deltas`, s, undefined, TURNS_MISSING)
   },
 }
 
 const TURNS_MISSING = 'Turn-by-turn times aren\'t available for this driver in this session.'
+/** A breakdown the export withheld: its telemetry failed the plausibility check (REVIEW_ROUND3 #48). */
+export const TURNS_UNRELIABLE = 'Corner times aren\'t reliable for this lap.'
 const STORY_NOT_WRITTEN = 'This story hasn\'t been written yet - stories are generated automatically after each session is processed.'
 
 /** 'Red Bull Racing' -> 'red-bull-racing'. Mirrors f1tracker.narratives.edits.slug. */

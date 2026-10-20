@@ -201,9 +201,10 @@ def precompute_turn_deltas(season_id: int, *, rounds: list[int] | None = None, d
             return
         try:
             with db_session() as db:
-                get_or_compute_turn_deltas(db, sid, did, force=True)
-        except ValueError:
-            pass  # cached as unavailable
+                try:
+                    get_or_compute_turn_deltas(db, sid, did, force=True)
+                except ValueError:
+                    pass  # cached as unavailable: caught here so the session commits it (and drops the old breakdown)
         except Exception as exc:
             log.warning("turn deltas session=%d driver=%d failed (will retry next run): %s", sid, did, exc)
 

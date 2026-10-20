@@ -261,3 +261,26 @@ test('Expert mode opens more detail and the full story, and survives a shared li
   await expect(page.getByRole('button', { name: /more detail/i })).toHaveAttribute('aria-expanded', 'false')
   await check(page, w, 'essential, nobody picked')
 })
+
+test('corner colours are ranks, and a withheld breakdown colours no corner (REVIEW_ROUND3 #48, #49)', async ({ page }) => {
+  // Baku FP1 (session 71): Norris's best lap had a frozen location feed, which drew +98.9s at T1 and
+  // purple everywhere else; Russell's breakdown is shown
+  const index = await (await page.request.get('data/sessions/71/turn-deltas.json')).json() as { drivers: number[]; withheld: number[] }
+  test.skip(!index.withheld.length || !index.drivers.length, 'this snapshot has no withheld Baku FP1 breakdown')
+  const w = watch(page)
+  const [withheld, shown] = [index.withheld.includes(19) ? 19 : index.withheld[0], index.drivers[0]]
+  await page.goto(`race/15?session=71&drivers=${withheld}`)
+  const circuit = page.getByRole('region', { name: 'Circuit' })
+  await expect(circuit.getByText("Corner times aren't reliable for this lap.")).toBeVisible()
+  await expect(circuit.locator('circle[data-tier]')).toHaveCount(0)
+  await check(page, w, 'withheld corners')
+
+  await page.goto(`race/15?session=71&drivers=${shown}`)
+  const td = await (await page.request.get(`data/sessions/71/drivers/${shown}/turn-deltas.json`)).json() as { turns: { number: number; rank: number; of: number }[] }
+  await expect(circuit.locator('circle[data-tier]').first()).toBeVisible()
+  const tierOf = (rank: number, of: number) => rank === 1 ? 'purple' : rank <= Math.ceil(of / 4) ? 'green' : rank <= Math.ceil(of * 3 / 4) ? 'yellow' : 'red'
+  for (const t of td.turns) {
+    await expect.soft(circuit.locator(`circle[data-turn="${t.number}"]`).first(), `T${t.number}`).toHaveAttribute('data-tier', tierOf(t.rank, t.of))
+  }
+  await check(page, w, 'ranked corners')
+})

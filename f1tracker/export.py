@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from .analysis.track import outline_to_dict
-from .analysis.turns import TURN_DELTA_VERSION
+from .analysis.turns import TURN_DELTA_VERSIONS_SHOWN, rank_session_corners
 from .api import main as api
 from .models import DriverSessionNarrative, DriverWeekendArc, Event, Season, SeasonArc, Session, SessionIngestionState, TrackOutline, TurnDeltaCache
 from .config import STORY_SESSION_TYPES
@@ -150,14 +150,19 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
             for did in session_driver_ids(db, s):
                 n = stories.get(did)
                 _try(write, f"{base}/drivers/{did}/narrative", lambda n=n, did=did: present_driver_session(db, n) if n else template_driver_session(db, s.id, did))
-        with_turns = []
+        cached = {}
         for td in db.scalars(select(TurnDeltaCache).where(TurnDeltaCache.session_id == s.id, TurnDeltaCache.payload_json.is_not(None))).all():
             payload = json.loads(td.payload_json)
-            if payload.get("version") == TURN_DELTA_VERSION:  # older breakdowns didn't add up; wait for the recompute
-                write(f"{base}/drivers/{td.driver_id}/turn-deltas", payload)
-                with_turns.append(td.driver_id)
-        # which drivers have a breakdown: the page asks this before fetching one, and hides the tab otherwise
-        write(f"{base}/turn-deltas", {"drivers": sorted(with_turns)})
+            if payload.get("version") in TURN_DELTA_VERSIONS_SHOWN:  # version 1 breakdowns didn't add up
+                cached[td.driver_id] = payload
+        # every breakdown passes the plausibility gate before it is shown, and corner colours come
+        # from ranks across the session (#48, #49)
+        shown, withheld = rank_session_corners(cached)
+        for did, payload in shown.items():
+            write(f"{base}/drivers/{did}/turn-deltas", payload)
+        # which drivers have a breakdown: the page asks this before fetching one; a withheld one
+        # gets "Corner times aren't reliable for this lap" instead of a coloured map
+        write(f"{base}/turn-deltas", {"drivers": sorted(shown), "withheld": sorted(withheld)})
 
     log.info("exported %d files (%.1f MB) to %s; stories by source: %s", write.files, write.bytes / 1e6, out, write.sources)
     return write
