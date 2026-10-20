@@ -137,7 +137,8 @@ def race_story(sheet: dict) -> dict[str, Any]:
         story = f"{name} was due to start{grid} but did not take the start."
         if mate.get("name"):
             story += f" His teammate {mate['name']} " + (f"finished P{mate['finish']}." if mate.get("finish") else "did not finish.")
-        return {"headline": f"Did not start{grid}", "essential": story, "expert": story, "analysis": "", "key_numbers": [{"label": "Grid", "value": f"P{r['grid']}"}] if r.get("grid") else [], "glossary_terms": ["DNS"]}
+        # no "full story": it would only repeat this one (REVIEW_ROUND3 #58)
+        return {"headline": f"Did not start{grid}", "essential": story, "expert": "", "analysis": "", "key_numbers": [{"label": "Grid", "value": f"P{r['grid']}"}] if r.get("grid") else [], "glossary_terms": ["DNS"]}
 
     grid, fin, gained = r.get("grid"), r.get("finish"), r.get("places_gained")
     lead = _lead(sheet)
@@ -296,9 +297,17 @@ def _merge(paras: list[str]) -> list[str]:
     return out
 
 
-def template_story(sheet: dict) -> dict[str, Any]:
+def template_story(sheet: dict, *, taken=None, driver_id: int | None = None) -> dict[str, Any]:
+    """`taken(driver_id, headline)`: another driver's headline in the session with the same shape, or None
+    (REVIEW_ROUND3 #53). The headline then comes from the next candidate whose shape is free."""
     stype = sheet["meta"]["session_type"]
     story = race_story(sheet) if stype in ("R", "S") else quali_story(sheet) if stype in ("Q", "SQ") else practice_story(sheet)
+    if taken is not None and taken(driver_id, story["headline"]):
+        cands = sheet.get("verdict_candidates") or []
+        options = [h for c in cands[:1] for h in c.get("alternates") or []] + [h for c in cands[1:] for h in [c["headline"], *(c.get("alternates") or [])]]
+        free = next((h for h in options if not taken(driver_id, h)), None)
+        if free:
+            story["headline"] = free
     for k in ("headline", "essential", "expert", "analysis"):  # a missing value must never print as "None"
         story[k] = re.sub(r"\s*\b(?:P|lap |laps )?None\b", "", story[k]).replace(" ,", ",").replace(" .", ".")
     return story

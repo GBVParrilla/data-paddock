@@ -9,7 +9,7 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 
 ## Round 3: current workstream
 
-**F (turn-by-turn)**: PR 1 open. Then **H pipeline** (PR 2), **G + H UI** (PR 3), **E** (PR 4).
+**F**: merged (PR #7). **H pipeline**: PR 2 open; the pilot is the owner's next action. Next: **G + H UI** (PR 3), then **E** (PR 4).
 
 ## Round 3: deviations from the prompt
 
@@ -26,16 +26,16 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 | 48 | P0 | Turn-by-turn alignment broken in 51 breakdowns | F | fixed in PR 1 (evidence below: 4 invariants failed before, pass after; crawl `corner colours are ranks…`; Baku FP1 screenshots) |
 | 49 | P1 | Purple meant "beat the reference by 30ms" | F | fixed in PR 1 (purple share 24.1% → 4.8%; `test_exactly_one_driver_is_purple_at_each_corner`) |
 | 50 | P1 | Selecting drivers is ambiguous | G | open |
-| 51 | P1 | Expert barely differs from Essential | H | open |
-| 52 | P1 | Factual slips in pilot stories | H | open |
-| 53 | P1 | Repetitive headlines within a session | H | open |
-| 54 | P2 | Talking about missing data | H | open |
-| 55 | P2 | Rankings out of one, decimal points | H | open |
-| 56 | P2 | A lap-1 retirement with "no stated reason" | H | open |
-| 57 | P2 | Home repeats the driver's name | H | open |
-| 58 | P2 | DNS template repeats its own summary | H | open |
+| 51 | P1 | Expert barely differs from Essential | H | data done in PR 2: `debrief` (computed in code) exported with every driver-session; the Expert view that shows it is PR 3 |
+| 52 | P1 | Factual slips in pilot stories | H | checker done in PR 2 (sector claims, Q1/Q2/Q3 wording, ordinals, headlines that misread the race, motives; unit tests for each slip); the pilot proves it |
+| 53 | P1 | Repetitive headlines within a session | H | done in PR 2 (candidates ranked by how distinctive they are; a headline with another driver's shape is rejected and retried; invariant `test_claude_headlines_in_a_session_rarely_share_a_shape`); the pilot proves it |
+| 54 | P2 | Talking about missing data | H | fixed in PR 2 (gaps never reach the prompt; checker rejects them in Essential and arcs; 46 Essentials and 0 arcs before, 0 after) |
+| 55 | P2 | Rankings out of one, decimal points | H | fixed in PR 2 (long runs ranked among 3 or more; whole points in arc facts; checker; 64 problems before, 0 after) |
+| 56 | P2 | A lap-1 retirement with "no stated reason" | H | fixed in PR 2 (`retirement_context`: R12 Verstappen now reads "His race ended on lap 1. The race was red-flagged on lap 2."; 2 before, 0 after) |
+| 57 | P2 | Home repeats the driver's name | H | fixed in PR 2 (`MidfieldLine` in `Home.tsx`) |
+| 58 | P2 | DNS template repeats its own summary | H | fixed in PR 2 (no full story for a DNS; invariant) |
 | 59 | P1 | Generic dark-card look | E | open |
-| 60 | P2 | The checker would ban a true fact ("standing in") | H | open. The round 2 pilot review was wrong to call Lawson's "standing in" invented: he drove for Red Bull at rounds 12–14 |
+| 60 | P2 | The checker would ban a true fact ("standing in") | H | fixed in PR 2: stand-in claims are checked against the entry list, not banned. The round 2 pilot review was wrong to call Lawson's "standing in" invented: he drove for Red Bull at rounds 12–14 |
 
 ### #48 and #49: what was wrong (Workstream F)
 
@@ -100,11 +100,44 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | F5 | The reference must agree, corner by corner, with another clean lap (within the gate) | Trust the fastest lap that passes the timing check | Monza FP2: a reference trace can match its lap time and still misplace 2.6s | `_reference` |
 | F6 | "Corners cancel out" allows \|lap delta\| + max(3s, 0.2s a corner), not a flat 3s | The prompt's flat 3s | Clean version 3 laps at Baku (20 corners) measure 1.0–3.9s over; a flat 3s withheld 5 of 22 good ones. Misaligned laps measured 13s and more | `cancel_slack_ms` |
 | F7 | A session where most breakdowns fail is withheld whole; fewer than 3 drivers are never ranked | Show what passes | Session 16 (version 2): the broken reference itself was the only breakdown left, ranked "1st of 1" everywhere | `rank_session_corners`, `MIN_RANKED` |
+| H1 | Templates keep their long story and analysis until PR 3; Claude's v4 stories have none, and the page hides "Read the full story" when it's empty | Drop them everywhere now | Expert would lose content between PR 2 and PR 3; PR 3 swaps both for the debrief | `template.py`, `DriverStory.tsx` |
+| H2 | Weather: the prompt gets only "rain was reported during the session", never temperatures | Detect "rain changed the order" | The timing data can't say whether rain changed the order; a flag is honest, and temperatures were the pilot's slip | `prompt_sheet` |
+| H3 | Fuel-corrected pace adds back 0.03s per lap of fuel burned, so every lap is compared as if on the lap-1 fuel load | Correct to the end of the race | Comparable across stints and drivers; same constant as the degradation verdicts | `debrief.fuel_corrected` |
+| H4 | A candidate shape shared by a quarter of the field counts for half its weight, rather than always moving to the back | Always last | Gasly's "Pitting just before the VSC was unlucky" is a shared situation and still his best story | `variety.SHARED_SHARE`, `SHARED_WEIGHT` |
+| H5 | The 10% headline-shape gate applies to Claude-written stories; template headlines vary only as far as their candidates allow (alternates, new practice candidates) | Force variety in templates | A practice template often has only a teammate comparison; the pilot and the full-season run replace templates | `test_claude_headlines_in_a_session_rarely_share_a_shape` |
+| H6 | Stories from before v4 are re-checked with the new rules at export (headline, Essential, and their long text and analysis) | Grandfather them | "0 published violations"; 98 of the 425 pilot stories now fall back to templates until the pilot rewrites them | `present_driver_session` |
+| H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
+
+### Workstream H pipeline (PR 2): what changed
+
+- **Claude writes the headline and Essential only** (`PROMPT_VERSION` 4). Expert is `debrief` (`narratives/debrief.py`), computed from the fact sheet and exported in every `narrative.json`:
+  - **Race and sprint:** a stint table (tyre, laps, fuel-corrected average, degradation, same-tyre pace vs teammate), stops (lap, pit lane, stationary, places, timing against a Safety Car or VSC) and sectors.
+  - **Qualifying:** segments (best, cut margin, gap to teammate), sectors and tyre runs.
+  - **Practice:** run plan, long-run ranks (only among 3 or more drivers with 5+ laps, with the sample size), single-lap rank and sectors.
+  - **Findings:** three numbered lines.
+  - A gap is `null` with one note per table.
+- **New checks** (each with a unit test): unit suffixes ("35.9C"); ordinals; sector claims; segment wording; stand-in claims against the entry list; motives; headlines that misread the race; ranks out of fewer than 3; decimal points; missing-data talk in Essential and arcs; sector ranks and pit-lane times in Essential.
+- **Prompt:**
+  - no temperatures, only "rain was reported"
+  - no data gaps, no motives or roles
+  - the session's headlines already written are passed in
+  - "don't copy the candidate's headline"
+- **Data:**
+  - a stop with no stint ending at it marks the stints unreliable (Hadjar R17: the debrief shows a dash and a note)
+  - a lap 1–2 retirement carries what race control reported (R12 Verstappen: the lap-2 red flag)
+  - a recovered pit-cycle loss is no longer "the pit stops cost him 10 places" (Colapinto R12)
+- **Headline variety:** candidates are ranked by how distinctive they are (a shape a quarter of the field shares counts half). Each session has a shared headline registry, and a clash is a violation the model retries. Templates fall back to alternates.
+- **Stories already published** (the 425 from the v3 pilot) go through the new checker at export: 327 of 2,291 stories stay Claude-written and the rest show templates until the pilot rewrites them. Every remaining v3 story's long text is still fact-checked.
+
+Evidence:
+- 73 unit tests, 245 invariants and the crawl pass.
+- The 6 new story invariants fail on `main`'s export (46 missing-data texts, 64 rank/point/ordinal problems, 2 "no stated reason", 1,851 stories without a debrief) and pass here.
 
 ## Round 3: owner actions
 
-1. **Merge PR 1** (Workstream F, with the round 3 docs and the two round 2 docs commits).
-2. Nothing else for F: the next daily run recomputes the corner times (no Claude calls). Tell me when it has run and I'll check the live site.
+1. ~~Merge PR 1~~ (merged 20 Oct).
+2. **Merge PR 2.**
+3. **Then run the pilot**: Actions → Site → Run workflow, mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800`. It writes about 330 session stories (shorter now: headline and Essential only), about 140 head-to-heads and 66 weekend arcs, plus retries. Tell me when it has finished; I'll score the same 15 stories against the gate (average 4.3 or more, none below 3, no more than 10% of a session's headlines sharing a shape, no missing-data sentences). `MAX_NEW_STORIES` stays 0 for the daily run.
 
 ## Round 3: scorecard log
 
@@ -114,9 +147,9 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 
 ## Round 3: next 3 actions
 
-1. Owner: merge PR 1.
-2. Me: PR 2 (Workstream H pipeline: checker, prompt v4, data fixes, `debrief`), then list the pilot under owner actions.
-3. Me: PR 3 (one-driver selection, vs strip, Expert debrief view, methods page) while the pilot runs.
+1. Owner: merge PR 2, then run the pilot (above).
+2. Me: PR 3 (one-driver selection, vs strip, Expert debrief view, methods page) while the pilot runs.
+3. Me: score the pilot when the owner reports it finished; then PR 4 (Circuit atlas).
 
 # Round 2
 

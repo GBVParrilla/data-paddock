@@ -263,6 +263,33 @@ def _run_jobs(plans: Iterator[Callable[[OrmSession], tuple[object, StoryJob | No
         drain(1)
 
 
+class _SessionStories:
+    """One session's fact sheets, built together so each driver's verdict candidates can be ranked by how
+    distinctive they are, and the session's headline registry (REVIEW_ROUND3 #53)."""
+
+    def __init__(self, sid: int, dids: list[int]):
+        self.sid, self.dids = sid, dids
+        self._sheets: dict[int, dict] | None = None
+        self._headlines = None
+
+    def _build(self, db: OrmSession) -> None:
+        from .narratives.facts import session_sheets
+        from .narratives.variety import SessionHeadlines
+
+        sheets, names = session_sheets(db, self.sid, self.dids)
+        self._sheets, self._headlines = sheets, SessionHeadlines(names)
+
+    def sheet(self, db: OrmSession, did: int) -> dict | None:
+        if self._sheets is None:
+            self._build(db)
+        return self._sheets.get(did)
+
+    def headlines(self, db: OrmSession):
+        if self._headlines is None:
+            self._build(db)
+        return self._headlines
+
+
 def generate_season_stories(year: int, *, force: bool = False, workers: int = STORY_WORKERS, max_new: int | None = None, deadline: float | None = None,
                             rounds: list[int] | None = None) -> StoryReport:
     """Write missing/changed stories. `rounds` limits it to those rounds (the pilot set); season arcs
@@ -293,8 +320,9 @@ def generate_season_stories(year: int, *, force: bool = False, workers: int = ST
     def driver_plans(event_sessions):
         for sid, stype, dids in event_sessions:
             if stype in STORY_SESSION_TYPES:
+                session = _SessionStories(sid, dids)
                 for did in dids:
-                    yield lambda db, sid=sid, did=did: plan_driver_session_narrative(db, sid, did, force=force)
+                    yield lambda db, session=session, did=did: plan_driver_session_narrative(db, session.sid, did, force=force, sheet=session.sheet(db, did), headlines=session.headlines(db))
 
     def weekend_plans(event_id, event_sessions):
         for sid, _, _ in event_sessions:

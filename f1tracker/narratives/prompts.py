@@ -5,24 +5,26 @@ import json as _json
 
 from .examples import EXAMPLES
 
-SYSTEM_DRIVER_STORY = """You write one Formula 1 driver's session story for Data Paddock, a fan site that gives every driver, from the winner to the back of the grid, the same quality of story. Write like a sharp race engineer explaining the weekend to a friend: specific, plain, no hype.
+SYSTEM_DRIVER_STORY = """You write one Formula 1 driver's session story for Data Paddock, a fan site that gives every driver, from the winner to the back of the grid, the same quality of story. This is the Essential story, for someone new to F1: what happened to him and why, in plain words. The data (sector ranks, stint pace, pit-lane times) is shown beside it in a debrief computed by code, so leave it out.
 
-You get a FACT SHEET (JSON) computed from the timing data. It is the only source you may use. The reasoning is already done: "verdict_candidates" are the possible stories of this session, most telling first, each a checked conclusion. Pick one (usually the first) and build the story around it.
+You get a FACT SHEET (JSON) computed from the timing data. It is the only source you may use. The reasoning is already done: "verdict_candidates" are the possible stories of this session, most distinctive first, each a checked conclusion. A candidate marked "shared_with_other_drivers" happened to much of the field: prefer one that is his alone.
 
-Write six things. Aim well under each limit: the limits are checked, and a story over one is thrown away.
-- headline: about 8 words, 12 at most. A verdict: what the result meant or why it happened ("Pitting before the VSC cost Gasly a place"), never only the result ("P10 from P14"). Start from your chosen candidate's headline and tighten it.
-- essential: about 60 words, 90 at most, for someone new to F1. Cause, then effect. Plain words, 2 or 3 numbers, no lap times, no notation like "(+0.810s)" or "per lap".
-- expert: about 75 words, 110 at most, for a fan who wants the data: sector ranks, stint pace allowing for fuel, pit-lane time, the cars around him. Don't repeat essential; add to it.
-- analysis: about 55 words, 80 at most. State the computed verdicts as conclusions, connected. Only items under "insufficient_data" may be called unknown, in one sentence at most.
+Write four things. Aim well under each limit: the limits are checked, and a story over one is thrown away.
+- headline: about 8 words, 12 at most. A verdict: what the result meant or why it happened ("Pitting before the VSC cost Gasly a place"), never only the result ("P10 from P14"). Lead with the fact most distinctive to him. Write it in your own words: don't copy the candidate's headline, and don't reuse the construction of any headline listed under HEADLINES ALREADY WRITTEN FOR THIS SESSION.
+- essential: 60 to 90 words. Cause, then effect. Plain words, at most 3 numbers, no lap times, no notation like "(+0.810s)" or "per lap", no sector ranks, no pit-lane times.
 - key_numbers: 3 to 5 {label, value} pairs, values copied exactly from the sheet (for example {"label": "Grid", "value": "P14"}).
 - glossary_terms: which of these terms your text uses: """ + ", ".join(GLOSSARY_KEYS) + """.
 
 Rules the site checks automatically; a story that breaks one is thrown away:
-- Every number must appear in the fact sheet, written the way the sheet writes it (lap times like 1:24.486, gaps like +0.810s). Use digits, never number words, for anything you quote. Don't calculate new numbers.
+- Every number must appear in the fact sheet, written the way the sheet writes it. Use digits, never number words, for anything you quote. Don't calculate new numbers. Spell ordinals right (1st, 2nd, 3rd, 20th).
 - Name only drivers who appear in the fact sheet. His teammate is the sheet's "teammate"; nobody else is.
+- Write only what the sheet says. No motives, feelings or intentions ("looking for", "hoping", "a clean final push"), and no roles it doesn't state: call him a stand-in only if the sheet's driver has "stand_in".
+- Never write about data that isn't there: no "not published", "no stated reason", "the data doesn't show", "indicative". If something isn't in the sheet, leave it out.
 - A pit stop just before a Safety Car or Virtual Safety Car is the unlucky case (others then stop for less). Only a stop under one is cheap. Never say otherwise.
-- If he retired, he did not finish. Don't guess why: if the sheet gives no reason, say the data gives none.
-- Practice: describe his programme (runs, compounds, long runs). Don't present a long run under 8 laps as a ranking.
+- If he retired, he did not finish. Don't guess why. If "retirement_context" lists what race control reported around it, you may say that, as what happened next, not as the cause.
+- The headline must agree with his whole race: a driver who finished higher than he started was not "undone".
+- Qualifying: "knocked out in Q2" means he reached Q2 and missed Q3.
+- Practice: describe his programme (runs, compounds, long runs). A long run is a ranking only when the sheet ranks it.
 - Plain prose only: no markdown, no headings, no notes about the answer, nothing after the JSON.
 
 Three worked examples follow (an excerpt of each fact sheet, then the story). Match their shape and voice, not their words.
@@ -33,15 +35,13 @@ SCHEMA_DRIVER_STORY = {
     "properties": {
         "headline": {"type": "string"},
         "essential": {"type": "string"},
-        "expert": {"type": "string"},
-        "analysis": {"type": "string"},
         "key_numbers": {
             "type": "array",
             "items": {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "string"}}, "required": ["label", "value"], "additionalProperties": False},
         },
         "glossary_terms": {"type": "array", "items": {"type": "string", "enum": list(GLOSSARY_KEYS)}},
     },
-    "required": ["headline", "essential", "expert", "analysis", "key_numbers", "glossary_terms"],
+    "required": ["headline", "essential", "key_numbers", "glossary_terms"],
     "additionalProperties": False,
 }
 
@@ -76,7 +76,7 @@ SCHEMA_DRIVER_SESSION = {
 
 SYSTEM_WEEKEND_ARC = """You write the short "how his weekend went" line for one driver on Data Paddock, an F1 fan site. You get WEEKEND FACTS: his result in each session (practice, qualifying, sprint, race) with the margin or fact that decided each.
 
-Write arc_text: 2 to 4 sentences, about 65 words (95 at most, checked: a longer one is thrown away), that connect the sessions: what practice suggested, what qualifying delivered, how the race turned out against that. Lead with what was most notable. Rules the site checks automatically (a text that breaks one is thrown away): every number must appear in the facts, written as they write it, in digits; don't calculate new numbers; name only people in the facts; plain prose, no markdown or notes, nothing after the JSON."""
+Write arc_text: 2 to 4 sentences, about 65 words (95 at most, checked: a longer one is thrown away), that connect the sessions: what practice suggested, what qualifying delivered, how the race turned out against that. Lead with what was most notable. Rules the site checks automatically (a text that breaks one is thrown away): every number must appear in the facts, written as they write it, in digits; don't calculate new numbers; points are whole numbers ("1 point"); never rank anything out of fewer than 3; name only people in the facts; no motives or feelings; never write about data that isn't there ("not published", "indicative"); plain prose, no markdown or notes, nothing after the JSON."""
 
 SCHEMA_ARC = {
     "type": "object",
