@@ -192,7 +192,7 @@ Average **3.86** (v3: 3.67) against a 4.3 gate; none below 3. **Gate failed** on
 
 **Recommendation (the owner decides; D1):** what's left is judgement, not facts the checker can see: a "late" lap 27, "P5 slipped away", a programme as a headline, filler. Two options, cheapest first:
 1. **Effort medium for Haiku** (`F1_NARRATIVE_EFFORT=medium`), all session stories. Same model, longer thinking; my estimate is about 1.5–2× tokens per call. Pass rates are already 97.5%, so the gain would be in quality, not retries.
-2. **Sonnet 5.5 for race and sprint stories only** (about 92 of the 324 in a pilot). Those are where the weakest stories were (Pérez, Stroll, Russell's "late"). It needs a small code change to pick the model by session type, which I'd add when asked.
+2. **Sonnet 5.5 for race and sprint stories only** (110 of the 324 in this pilot). Those are where the weakest stories were (Pérez, Stroll, Russell's "late"). It needs a small code change to pick the model by session type, which I'd add when asked.
 
 I'd try 1 first with the second pilot; it's one variable and no code.
 
