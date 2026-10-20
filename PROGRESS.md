@@ -153,11 +153,54 @@ Evidence:
 - **Methods page** (`/methods`, linked from every debrief and the footer): fuel correction, degradation, pace against the teammate, pit-stop places and timing, cut lines, sector and corner ranks, long runs. Every figure matches the code.
 - **Proof:** crawl 24/24 (desktop and mobile). It includes the switch-not-stack check in every session of rounds 1, 12 and 17; the vs strip for every driver who took part; `vs=` links restoring; old links redirecting; a `vs=` page at most 900px taller; the debrief in Expert; and the methods page. No sideways scroll at 375px. Screenshots: `docs/screenshots/round3/g-gasly-essential-vs-teammate.png`, `h-gasly-expert-debrief.png` and `h-gasly-expert-debrief-375.png`.
 
+### Pilot (prompt v4): stories-only, rounds 1, 12 and 17, 20 Oct (run 39473772923)
+
+**Pass rate and checks:**
+- 316 of 324 session stories written by Claude (97.5%, gate 90%), 66 of 66 weekend arcs, 139 of 139 head-to-heads.
+- 408 attempts for the 316, an average of 1.29.
+- Published violations: 0 (245 invariants pass on the export).
+- Headlines sharing a shape: 0% in every pilot session (gate 10%).
+- Missing-data sentences the checker knew about: 0.
+
+The same 15 stories, scored 1–5 (accuracy, readability, insight, specificity, averaged):
+
+| Story | v3 | v4 | Note |
+|---|---|---|---|
+| R1 R Russell | 4 | 4 | Clear; but the headline calls lap 27 of 58 a "late" lead change |
+| R12 R Norris | 3.5 | 4.5 | The lead history is right now (Antonelli on lap 5, Norris for good on lap 54) |
+| R17 Q Verstappen | 3 | 3.5 | **Headline "sector-perfect lap"** with a 6th-best S2; the Essential says S2 gave up time |
+| R12 S Piastri | 3.3 | 3.5 | Headline "P5 slipped away" for a driver who finished P5 |
+| R17 R Leclerc | 4 | 4 | Good; the VSC stop and the place it cost are right |
+| R1 R Gasly | 4.3 | 4.5 | Best of the set again |
+| R12 R Alonso | 4.3 | 4.3 | Good |
+| R17 R Hadjar | 3 | 4 | The climb is the headline now; "overcut" unexplained for a new fan |
+| R1 Q Gasly | 3.8 | 4.5 | Q2 exit, 0.280s, right this time |
+| R12 FP1 Lawson | 3.5 | 3.5 | "Stand-in" is true now; the headline is a programme, not a verdict; "rain was reported" is filler |
+| R1 R Hadjar | 4 | 3.5 | **"Race control reported no cause"**: missing-data talk the checker didn't know |
+| R17 R Stroll | 4.3 | 3.8 | Clunky ("ended on lap 37 with him retired") |
+| R12 Q Bottas | 2.5 | 3 | **"Slowest in the middle and final sectors"**: S3 was 20th of 22; "only flying lap" against "three runs" |
+| R17 S Pérez | 4 | 3 | **A lap-5 incident for a lap-2 retirement**, and "no decision was recorded" |
+| R12 R Colapinto | 3.5 | 4.3 | The recovered pit-cycle loss reads right now |
+
+Average **3.86** (v3: 3.67) against a 4.3 gate; none below 3. **Gate failed** on the average; every other gate passed.
+
+**Fixed after the pilot** (prompt v5; checks unit-tested):
+- "sector-perfect" and "slowest in sector N" are checked against the ranks.
+- "reported no cause" and "no decision recorded" count as missing-data talk.
+- Incidents after a retirement no longer reach the prompt.
+- The 12 published pilot stories these rules now reject show templates until the next pilot.
+
+**Recommendation (the owner decides; D1):** what's left is judgement, not facts the checker can see: a "late" lap 27, "P5 slipped away", a programme as a headline, filler. Two options, cheapest first:
+1. **Effort medium for Haiku** (`F1_NARRATIVE_EFFORT=medium`), all session stories. Same model, longer thinking; my estimate is about 1.5–2× tokens per call. Pass rates are already 97.5%, so the gain would be in quality, not retries.
+2. **Sonnet 5.5 for race and sprint stories only** (about 92 of the 324 in a pilot). Those are where the weakest stories were (Pérez, Stroll, Russell's "late"). It needs a small code change to pick the model by session type, which I'd add when asked.
+
+I'd try 1 first with the second pilot; it's one variable and no code.
+
 ## Round 3: owner actions
 
-1. ~~Merge PR 1~~ (merged 20 Oct).
-2. **Merge PR 2.**
-3. **Then run the pilot**: Actions → Site → Run workflow, mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800`. It writes about 330 session stories (shorter now: headline and Essential only), about 140 head-to-heads and 66 weekend arcs, plus retries. Tell me when it has finished; I'll score the same 15 stories against the gate (average 4.3 or more, none below 3, no more than 10% of a session's headlines sharing a shape, no missing-data sentences). `MAX_NEW_STORIES` stays 0 for the daily run.
+1. ~~Merge PR 1~~ (merged 20 Oct). ~~Merge PR 2~~ (merged 20 Oct). ~~Pilot v4~~ (run 20 Oct; above). ~~Merge PR 3~~ (merged 20 Oct).
+2. **Merge the pilot-fixes PR**, then **decide on the recommendation** above (set `F1_NARRATIVE_EFFORT` to `medium`, or keep `low`), then **run a second pilot**: the same settings as below. I'll re-score the same 15.
+3. *(done)* The first pilot: Actions → Site → Run workflow, mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800`. It writes about 330 session stories (shorter now: headline and Essential only), about 140 head-to-heads and 66 weekend arcs, plus retries. Tell me when it has finished; I'll score the same 15 stories against the gate (average 4.3 or more, none below 3, no more than 10% of a session's headlines sharing a shape, no missing-data sentences). `MAX_NEW_STORIES` stays 0 for the daily run.
 
 ## Round 3: scorecard log
 

@@ -621,6 +621,10 @@ def prompt_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
         out["programme"] = {**out["programme"], "stints": [{k: v for k, v in s.items() if not (k == "compound" and v == "UNRECORDED")} for s in out["programme"]["stints"]]}
     if out.get("verdict_candidates"):
         out["verdict_candidates"] = [{k: v for k, v in c.items() if k not in CANDIDATE_DROP} for c in out["verdict_candidates"]]
+    retired = (out.get("result") or {}).get("retired_on_lap") if isinstance(out.get("result"), dict) else None
+    if retired and out.get("incidents"):
+        # what race control did after he stopped isn't part of his race (R17 S Pérez, prompt v4 pilot)
+        out["incidents"] = [i for i in out["incidents"] if not (i.get("lap") and i["lap"] > retired)]
     if isinstance(out.get("result"), dict) and out["result"].get("retirement_reason_given") == "not stated":
         out["result"] = {k: v for k, v in out["result"].items() if k != "retirement_reason_given"}
     out["meta"] = {k: v for k, v in (sheet.get("meta") or {}).items() if k in ("season", "round", "event", "session", "session_type", "sprint_weekend")}
