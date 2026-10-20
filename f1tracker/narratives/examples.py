@@ -1,7 +1,7 @@
 """Three worked examples for the driver-story prompt: a winner, a midfield driver and a retirement,
 written by hand from the real 2026 Australian Grand Prix fact sheets and checked by the fact-checker
-(tests/test_prompts.py). They show the shape and the voice: verdict first, plain words in Essential,
-the data in Expert."""
+(tests/test_prompts.py). They show the shape and the voice: a verdict headline, then Essential in
+plain words, cause before effect. The data goes in the Expert debrief, which code writes."""
 from __future__ import annotations
 
 EXAMPLES = [
@@ -23,8 +23,6 @@ EXAMPLES = [
         "story": {
             "headline": "Russell won the race in the pit stops",
             "essential": "George Russell started from pole but was second after the first lap. His only stop came under the Virtual Safety Car, a cheap moment to pit, yet it still cost him a place once the cars around him had stopped too. The race turned on lap 27, when he took the lead from Hamilton through the pit stops and kept it to the flag.",
-            "expert": "Russell was P2 after lap 1 and never ran lower than P3. He pitted on lap 11, 17.8s in the pit lane and 2.3s stationary, then ran hards for laps 12-58, where his pace faded by only about 0.03s a lap allowing for fuel. Sector 3 was his weakest: 6th of 20, +0.263s to the session best.",
-            "analysis": "The stop under the Virtual Safety Car was cheap, but it cost him a place: P2 before, P3 after. The second round of stops won him the race: Hamilton pitted on lap 27 and Russell came out ahead.",
             "key_numbers": [{"label": "Finish", "value": "P1"}, {"label": "Grid", "value": "P1"}, {"label": "Stops", "value": "1"}],
             "glossary_terms": ["VSC", "compound"],
         },
@@ -48,8 +46,6 @@ EXAMPLES = [
         "story": {
             "headline": "Pitting before the VSC cost Gasly a place",
             "essential": "Pierre Gasly made a strong start, gaining 5 places on the opening lap to run P9. His only stop, on lap 10, came just before a Virtual Safety Car: unlucky, because the cars that waited stopped for less, and it cost him a place. He still finished P10 from P14 on the grid for one point, ahead of teammate Franco Colapinto.",
-            "expert": "Gasly was P9 after lap 1 and ran between P9 and P12. He pitted on lap 10, 18.6s in the pit lane, and his hard-tyre pace over laps 11-57 faded by about 0.04s a lap allowing for fuel. Sector 3 was his weak point: 16th of 20, +1.149s to the session best. He spent 55 laps next to Esteban Ocon; the stewards took no further action over their turn 3 incident on lap 23.",
-            "analysis": "His stop on lap 10 came just before the Virtual Safety Car on lap 12: unlucky timing that cost him a place, P10 before and P11 after. The places he made on the opening lap are what kept him in the points.",
             "key_numbers": [{"label": "Finish", "value": "P10"}, {"label": "Grid", "value": "P14"}, {"label": "Places", "value": "+4"}],
             "glossary_terms": ["VSC", "compound", "lapped"],
         },
@@ -67,9 +63,7 @@ EXAMPLES = [
         },
         "story": {
             "headline": "A lap-11 retirement cut short Hadjar's run in P5",
-            "essential": "Isack Hadjar started third and was running P5 when his race ended on lap 11. The timing data gives no reason for the retirement. Until then his pace on medium tyres had held steady. His teammate Max Verstappen came through from P20 on the grid to finish P6.",
-            "expert": "Hadjar was P4 after lap 1 and ran P4 or P5 until he stopped. On mediums for laps 1-10 his best lap was 1:25.239, and allowing for fuel his pace held steady. Sector 2 was where he lost most: 20th of 20, +1.195s to the session best.",
-            "analysis": "His pace held steady through laps 1-10, so the retirement on lap 11, from P5, was the whole story of his race.",
+            "essential": "Isack Hadjar started third and was running P5 when his race ended on lap 11. Until then his pace on medium tyres had held steady. His teammate Max Verstappen came through from P20 on the grid to finish P6.",
             "key_numbers": [{"label": "Grid", "value": "P3"}, {"label": "Retired", "value": "Lap 11"}, {"label": "Running", "value": "P5"}],
             "glossary_terms": ["DNF", "compound"],
         },

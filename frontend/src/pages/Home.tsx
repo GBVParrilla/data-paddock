@@ -40,7 +40,7 @@ function LatestRace({ event }: { event: Event }) {
         {spot.data && (
           <div className="mt-7 pt-5 border-t" style={{ borderColor: 'var(--line)' }}>
             <div className="kicker flex items-center gap-2"><span className="dot" style={{ background: teamColor(spot.data.team) }} />Midfield story</div>
-            <p className="mt-2 text-[14px]"><span className="font-semibold">{spot.data.driver}.</span> <span className="t2">{spot.data.reason.split('. ')[0]}.</span></p>
+            <MidfieldLine driver={spot.data.driver} reason={spot.data.reason} />
           </div>
         )}
 
@@ -142,4 +142,11 @@ export function Home() {
       )}
     </div>
   )
+}
+
+/** "Isack Hadjar climbed from P22 to P10", with the name in bold: never "Isack Hadjar. Isack Hadjar climbed…" (REVIEW_ROUND3 #57). */
+function MidfieldLine({ driver, reason }: { driver: string; reason: string }) {
+  const first = reason.split('. ')[0].replace(/\.$/, '')
+  if (first.startsWith(driver)) return <p className="mt-2 text-[14px] t2"><span className="font-semibold" style={{ color: 'var(--text)' }}>{driver}</span>{first.slice(driver.length)}.</p>
+  return <p className="mt-2 text-[14px]"><span className="font-semibold">{driver}.</span> <span className="t2">{first}.</span></p>
 }

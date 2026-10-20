@@ -214,10 +214,16 @@ def _present(db: OrmSession, row: Any, key: str, text_field: str, analysis_field
     return out
 
 
-def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify: bool = True) -> dict[str, Any]:
+def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify: bool = True, sheet: dict | None = None, headlines=None) -> dict[str, Any]:
     """The story as published: a human edit if there is one, else the AI story if it still passes the
-    fact-check against today's data, else the story written by code from the fact sheet."""
+    fact-check against today's data, else the story written by code from the fact sheet. With the
+    Expert debrief computed from the same sheet (REVIEW_ROUND3 D7).
+
+    `sheet`/`headlines`: the session's ranked sheet and headline registry (`facts.session_sheets`), so a
+    template here picks the same distinct headline the pipeline would (REVIEW_ROUND3 #53)."""
     import json
+
+    from .debrief import build_debrief
 
     out = _present(db, n, driver_session_key(db, n.session_id, n.driver_id), "narrative_text", "strategy_analysis_text")
     out["key_numbers"] = json.loads(n.key_numbers_json) if n.key_numbers_json else []
@@ -232,17 +238,20 @@ def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify:
     from .template import template_story
 
     try:
-        sheet = build_driver_session_facts(db, n.session_id, n.driver_id)
+        sheet = sheet or build_driver_session_facts(db, n.session_id, n.driver_id)
     except ValueError:
         return out
+    out["debrief"] = build_debrief(db, n.session_id, n.driver_id, sheet)
     if n.is_template or not n.headline:
         problems = ["written before stories were fact-checked"] if not n.is_template else []
     else:
         ctx = story_context(db, n.session_id)
-        data = {"headline": n.headline, "essential": n.summary, "expert": n.narrative_text, "analysis": n.strategy_analysis_text}
+        data = {"headline": n.headline, "essential": n.summary}
+        if n.narrative_text:  # a story from before prompt v4: its long text and analysis are checked too
+            data.update({"expert": n.narrative_text, "analysis": n.strategy_analysis_text})
         problems = [str(v) for v in check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"])]
     if problems or n.is_template:
-        t = template_story(sheet)  # always rebuilt from today's facts
+        t = template_story(sheet, taken=headlines.clash if headlines is not None else None, driver_id=n.driver_id)  # always rebuilt from today's facts
         out.update({"headline": t["headline"], "summary": t["essential"], "narrative_text": t["expert"], "strategy_analysis_text": t["analysis"],
                     "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"], "source": "template"})
         if problems and not n.is_template:
@@ -322,16 +331,19 @@ def _apply_edit(db: OrmSession, out: dict[str, Any], field: str, analysis_field:
             out[analysis_field] = edit.analysis_text
     return out
 
-def template_driver_session(db: OrmSession, session_id: int, driver_id: int) -> dict[str, Any]:
+def template_driver_session(db: OrmSession, session_id: int, driver_id: int, *, sheet: dict | None = None, headlines=None) -> dict[str, Any]:
+    from .debrief import build_debrief
     from .facts import build_driver_session_facts
     from .template import template_story
 
     session = db.get(Session, session_id)
-    t = template_story(build_driver_session_facts(db, session_id, driver_id))
+    sheet = sheet or build_driver_session_facts(db, session_id, driver_id)
+    t = template_story(sheet, taken=headlines.clash if headlines is not None else None, driver_id=driver_id)
     out = {
         "session_id": session_id, "driver_id": driver_id, "session_type": session.session_type, "headline": t["headline"], "summary": t["essential"],
         "narrative_text": t["expert"], "strategy_analysis_text": t["analysis"], "key_numbers": t["key_numbers"], "glossary_terms": t["glossary_terms"],
         "source": "template", "generated_at": None, "model_used": "template", "story_key": driver_session_key(db, session_id, driver_id), "edited": False,
+        "debrief": build_debrief(db, session_id, driver_id, sheet),
     }
     return _apply_edit(db, out, "narrative_text", "strategy_analysis_text")
 

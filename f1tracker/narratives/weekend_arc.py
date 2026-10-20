@@ -56,7 +56,8 @@ def build_weekend_facts(db: OrmSession, event_id: int, driver_id: int) -> dict:
             part["teammate_position"] = (r.get("teammate") or {}).get("position")
         if s.session_type in ("R", "S"):
             part["teammate_finish"] = (r.get("teammate") or {}).get("finish")
-            part["points"] = r.get("points")
+            pts = r.get("points")
+            part["points"] = int(pts) if isinstance(pts, float) and pts.is_integer() else pts  # "1 point", never "1.0 points" (REVIEW_ROUND3 #55)
             # the leading verdict candidate: the same conclusion the session story leads with
             part["deciding_fact"] = ((sheet.get("verdict_candidates") or [{}])[0].get("verdict")) or (sheet.get("verdicts") or [None])[0]
         if s.session_type in ("FP1", "FP2", "FP3") and sheet.get("long_runs"):

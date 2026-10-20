@@ -135,3 +135,84 @@ def test_job_accepts_first_clean_answer(monkeypatch):
     monkeypatch.setattr(jobs, "generate_json", lambda *a, **k: ({"story": "clean"}, "model-x"))
     out = jobs.StoryJob("t", "s", "u", {}, save=lambda db, o: o, check=lambda d: []).call()
     assert out.attempts == 1 and not out.fallback and out.model == "model-x"
+
+
+# --- REVIEW_ROUND3: the slips the prompt v3 pilot published, and the patterns its review counted ----
+
+def test_a_v4_story_is_headline_and_essential_only():
+    assert _check({k: v for k, v in _story().items() if k not in ("expert", "analysis")}) == []
+
+
+def test_unit_suffixes_are_numbers():
+    sheet = {**SHEET, "weather": {"track_temp_c": {"max": 35.9}}}
+    assert check_story(_story(expert="Track temperature reached 35.9C."), sheet, roster=ROSTER, entrants=ENTRANTS) == []
+    assert any("36.9C" in str(v) for v in check_story(_story(expert="Track temperature reached 36.9C."), sheet, roster=ROSTER, entrants=ENTRANTS))
+
+
+def test_misspelt_ordinals_are_caught():
+    sheet = {**SHEET, "sectors": {"sector_1": {"rank": 21, "of": 22}, "sector_2": {"rank": 22, "of": 22}, "sector_3": {"rank": 20, "of": 22}}}
+    bad = check_story(_story(expert="His sectors ranked 21st, 22nd and 20nd of 22."), sheet, roster=ROSTER, entrants=ENTRANTS)
+    assert any("20nd" in str(v) and "20th" in str(v) for v in bad)
+
+
+def test_sector_claims_must_match_the_ranks():
+    # R17 Q Verstappen: 1st in S1 and S3, 6th in S2, but "fastest in both final sectors"
+    sheet = {**SHEET, "sectors": {"sector_1": {"rank": 1, "of": 22}, "sector_2": {"rank": 6, "of": 22}, "sector_3": {"rank": 1, "of": 22}}}
+    check = lambda text: [str(v) for v in check_story(_story(expert=text), sheet, roster=ROSTER, entrants=ENTRANTS)]  # noqa: E731
+    assert any("sector 2" in v for v in check("He was fastest in both final sectors."))
+    assert check("He was fastest in sectors 1 and 3.") == []
+    assert any("weakest" in v for v in check("Sector 1 was his weakest."))  # a top-5 sector isn't weak
+    assert check("Sector 2 was his weakest.") == []
+    assert check("He was fastest through sector 1, but lost time in sectors 2 and 3.") == []  # not a claim about S2
+
+
+def test_segment_wording_must_match_the_exit():
+    # R1 Q Gasly: knocked out in Q2, but the analysis said he "missed Q2"
+    sheet = {**SHEET, "meta": {"season": 2026, "session_type": "Q"}, "result": {"position": 12, "reached": "knocked out in Q2"}}
+    check = lambda text: [str(v) for v in check_story(_story(expert=text), sheet, roster=ROSTER, entrants=ENTRANTS)]  # noqa: E731
+    assert any("missed Q2" in v and "missed Q3" in v for v in check("He missed Q2 by a fraction."))
+    assert check("He missed Q3 by a fraction.") == []
+    assert check("He was knocked out in Q2.") == []
+    assert check("He missed the Q2 cut.") == []  # the cut he faced, not a segment he missed
+
+
+def test_stand_in_claims_are_checked_against_the_entry_list():
+    # REVIEW_ROUND3 #60: Lawson really was Red Bull's stand-in at round 12, so this is checked, not banned
+    text = "Standing in for Red Bull, he was P12."
+    assert any("stand-in" in str(v) for v in check_story(_story(expert=text), SHEET, roster=ROSTER, entrants=ENTRANTS))
+    stand_in = {**SHEET, "driver": {**SHEET["driver"], "stand_in": True, "usual_team": "Racing Bulls"}}
+    assert check_story(_story(expert=text), stand_in, roster=ROSTER, entrants=ENTRANTS) == []
+
+
+def test_motives_and_missing_data_talk_are_caught():
+    assert any("guess" in v for v in _check(_story(essential="He was looking for a better start and finished P10.")))
+    assert any("guess" in v for v in _check(_story(expert="A clean final push gave him P10.")))
+    for text in ("Stationary times are not published for this race.", "The pace order is only indicative.", "His race ended with no stated reason."):
+        assert any("isn't there" in v for v in _check(_story(essential=text))), text
+
+
+def test_a_headline_must_not_misread_the_race():
+    # R17 Russell: P19 to P9 was not "undone"; R12 Colapinto finished where he started, so a stop that "cost 10 places" isn't the story
+    climb = {**SHEET, "result": {**SHEET["result"], "grid": 19, "finish": 9, "places_gained": 10}}
+    bad = check_story(_story(headline="Russell's climb was undone by a stop under the VSC"), climb, roster=ROSTER, entrants=ENTRANTS)
+    assert any("misreads" in str(v) for v in bad)
+    level = {**SHEET, "result": {**SHEET["result"], "grid": 15, "finish": 15, "places_gained": 0}, "allowed_place_counts": [10]}
+    assert any("lost 10 places" in str(v) for v in check_story(_story(headline="The first stop cost Gasly 10 places"), level, roster=ROSTER, entrants=ENTRANTS))
+    assert not any("[headline]" in str(v) for v in check_story(_story(headline="Gasly recovered from a stop that cost him 10 places"), level, roster=ROSTER, entrants=ENTRANTS))
+
+
+def test_ranks_out_of_fewer_than_three_and_decimal_points_are_caught():
+    assert any("fewer than 3" in v for v in _check(_story(expert="He was 1st of 1 on the medium tyre.")))
+    assert any("1 point" in v for v in _check(_story(essential="He finished P10 for 1.0 points.")))
+
+
+def test_essential_leaves_sector_ranks_and_pit_lane_times_to_the_debrief():
+    assert any("debrief" in v for v in _check(_story(essential="He was 16th in sector 3 and finished P10.")))
+    assert any("debrief" in v for v in _check(_story(essential="He spent 18.6s in the pit lane and finished P10.")))
+
+
+def test_a_dns_story_has_no_full_story_repeating_it():
+    # REVIEW_ROUND3 #58: Piastri (R1) - the full story equalled the summary
+    sheet = {**SHEET, "result": {"status": "did not start", "grid": 5, "teammate": {"name": "Franco Colapinto", "finish": 14}}}
+    t = template_story(sheet)
+    assert t["essential"] and t["expert"] == ""

@@ -99,6 +99,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
                   {sectorRanks.map((r) => `S${r.sec} ${nth(r.rank)}`).join(' · ')} <span className="t3">of {sectorRanks[0].of} who set a time</span>
                 </p>
               )}
+              {story.data.narrative_text && (  // prompt v4 stories have none: Expert is the computed debrief (REVIEW_ROUND3 D7)
               <details key={`${story.data.story_key}-${expert}`} className="mt-5 group" open={expert || !story.data.summary}>
                 <summary className="cursor-pointer list-none text-[13px] font-medium inline-flex items-center gap-1.5 hover:text-[var(--text)] t2">
                   <span className="group-open:hidden">Read the full story</span><span className="hidden group-open:inline">Hide the full story</span>
@@ -106,6 +107,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
                 </summary>
                 <div className="prose mt-3 space-y-3">{story.data.narrative_text.split(/\n\s*\n/).map((p, i) => <p key={i}>{p}</p>)}</div>
               </details>
+              )}
             </div>
             {story.data.strategy_analysis_text && (
               <div className="lg:border-l lg:pl-8" style={{ borderColor: 'var(--line)' }}>

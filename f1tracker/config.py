@@ -40,7 +40,7 @@ NARRATIVE_EFFORT = os.environ.get("F1_NARRATIVE_EFFORT") or "low"
 FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
 NARRATIVE_MAX_TOKENS = 16000  # thinking counts toward it; ~1k is typical, but a few stories need much more
 # Bump when prompts change so cached narratives regenerate.
-PROMPT_VERSION = "3"  # 3: verdict candidates, Essential/Expert, worked examples (round 2); 2: fact sheets, fact-checked
+PROMPT_VERSION = "4"  # 4: Essential only (Expert is the code-written debrief), headline variety, round 3 checks; 3: verdict candidates, Essential/Expert, worked examples (round 2); 2: fact sheets, fact-checked
 
 # --- Story pipeline + human edits ----------------------------------------------
 # Stories are written by the pipeline right after a session is processed, stored in the DB,

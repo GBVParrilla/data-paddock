@@ -32,6 +32,8 @@ from .narratives.edits import (
     template_season_arc,
     template_weekend_arc,
 )
+from .narratives.facts import session_sheets
+from .narratives.variety import SessionHeadlines
 from .pipeline import session_driver_ids
 
 log = logging.getLogger(__name__)
@@ -147,9 +149,19 @@ def export_site_data(db: OrmSession, out: Path) -> _Writer:
         _try(write, f"{base}/midfield-spotlight", api.midfield_spotlight, s.id, generate=False, db=db, empty=None)
         if s.session_type in STORY_SESSION_TYPES:
             stories = {n.driver_id: n for n in db.scalars(select(DriverSessionNarrative).where(DriverSessionNarrative.session_id == s.id)).all()}
-            for did in session_driver_ids(db, s):
+            dids = session_driver_ids(db, s)
+            sheets, names = session_sheets(db, s.id, dids)
+            headlines = SessionHeadlines(names)
+            # Claude's stories first: their headlines are fixed, so the templates pick shapes still free (REVIEW_ROUND3 #53)
+            for did in sorted(dids, key=lambda d: not (stories.get(d) and not stories[d].is_template)):
                 n = stories.get(did)
-                _try(write, f"{base}/drivers/{did}/narrative", lambda n=n, did=did: present_driver_session(db, n) if n else template_driver_session(db, s.id, did))
+
+                def story(n=n, did=did):
+                    out = present_driver_session(db, n, sheet=sheets.get(did), headlines=headlines) if n else template_driver_session(db, s.id, did, sheet=sheets.get(did), headlines=headlines)
+                    if out.get("headline"):
+                        headlines.seed(did, out["headline"])
+                    return out
+                _try(write, f"{base}/drivers/{did}/narrative", story)
         cached = {}
         for td in db.scalars(select(TurnDeltaCache).where(TurnDeltaCache.session_id == s.id, TurnDeltaCache.payload_json.is_not(None))).all():
             payload = json.loads(td.payload_json)
