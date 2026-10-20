@@ -9,7 +9,7 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 
 ## Round 3: current workstream
 
-**F**: merged (PR #7). **H pipeline**: PR 2 open; the pilot is the owner's next action. Next: **G + H UI** (PR 3), then **E** (PR 4).
+**F**: merged (PR #7). **H pipeline**: merged (PR #8); the pilot is the owner's action. **G + H UI**: PR 3 open. Next: **E** (PR 4).
 
 ## Round 3: deviations from the prompt
 
@@ -25,8 +25,8 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 |---|---|---|---|---|
 | 48 | P0 | Turn-by-turn alignment broken in 51 breakdowns | F | fixed in PR 1 (evidence below: 4 invariants failed before, pass after; crawl `corner colours are ranks…`; Baku FP1 screenshots) |
 | 49 | P1 | Purple meant "beat the reference by 30ms" | F | fixed in PR 1 (purple share 24.1% → 4.8%; `test_exactly_one_driver_is_purple_at_each_corner`) |
-| 50 | P1 | Selecting drivers is ambiguous | G | open |
-| 51 | P1 | Expert barely differs from Essential | H | data done in PR 2: `debrief` (computed in code) exported with every driver-session; the Expert view that shows it is PR 3 |
+| 50 | P1 | Selecting drivers is ambiguous | G | fixed in PR 3 (`selectDriver`: a tap selects one driver, `drivers=`/`vs=` in the URL, old `drivers=a,b` links open a with vs b; the vs strip in the panel; crawl `one driver per tap…` and the per-round "one driver, then another" checks) |
+| 51 | P1 | Expert barely differs from Essential | H | fixed: data in PR 2, view in PR 3 (Expert shows the debrief instead of prose; crawl asserts `[data-debrief]` and no Essential text in Expert; screenshots `h-gasly-expert-debrief*.png`) |
 | 52 | P1 | Factual slips in pilot stories | H | checker done in PR 2 (sector claims, Q1/Q2/Q3 wording, ordinals, headlines that misread the race, motives; unit tests for each slip); the pilot proves it |
 | 53 | P1 | Repetitive headlines within a session | H | done in PR 2 (candidates ranked by how distinctive they are; a headline with another driver's shape is rejected and retried; invariant `test_claude_headlines_in_a_session_rarely_share_a_shape`); the pilot proves it |
 | 54 | P2 | Talking about missing data | H | fixed in PR 2 (gaps never reach the prompt; checker rejects them in Essential and arcs; 46 Essentials and 0 arcs before, 0 after) |
@@ -106,6 +106,10 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H4 | A candidate shape shared by a quarter of the field counts for half its weight, rather than always moving to the back | Always last | Gasly's "Pitting just before the VSC was unlucky" is a shared situation and still his best story | `variety.SHARED_SHARE`, `SHARED_WEIGHT` |
 | H5 | The 10% headline-shape gate applies to Claude-written stories; template headlines vary only as far as their candidates allow (alternates, new practice candidates) | Force variety in templates | A practice template often has only a teammate comparison; the pilot and the full-season run replace templates | `test_claude_headlines_in_a_session_rarely_share_a_shape` |
 | H6 | Stories from before v4 are re-checked with the new rules at export (headline, Essential, and their long text and analysis) | Grandfather them | "0 published violations"; 98 of the 425 pilot stories now fall back to templates until the pilot rewrites them | `present_driver_session` |
+| G1 | The comparison has no "off" state: the strip always shows, teammate by default | A toggle to hide it | D8 builds the teammate comparison into the panel; one less control | `DriverStory` children in `RaceWeekend.tsx` |
+| G2 | Without a written head-to-head, the strip shows only the three facts and the gap chart (the computed head-to-head sentences are gone) | Keep them | They repeated the three facts in prose | `VsStrip` |
+| G3 | The long story and the analysis paragraph are no longer shown, even for templates and older stories that have them | Show them in Expert under the debrief | D7: Expert swaps the prose for the debrief; Essential stays the short story | `DriverStory.tsx` |
+| G4 | The deep dive keeps showing only the picked driver (not the comparison) | Both | The vs strip already covers the comparison; the deep dive stays about one driver | `RaceWeekend.tsx` |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -133,6 +137,22 @@ Evidence:
 - 73 unit tests, 245 invariants and the crawl pass.
 - The 6 new story invariants fail on `main`'s export (46 missing-data texts, 64 rank/point/ordinal problems, 2 "no stated reason", 1,851 stories without a debrief) and pass here.
 
+### Workstreams G and H UI (PR 3): what changed
+
+- **One driver per tap** (D8): `selectDriver` replaces `toggleDriver`. A second tap switches; tapping the selected driver again clears.
+  - The URL carries `drivers=<id>` and `vs=<id>`, kept in sync, so a link restores exactly what was on screen.
+  - An old `drivers=a,b` link opens a with vs b.
+  - The classification hint reads "Pick a driver".
+- **The vs strip** sits at the foot of the driver's panel (`VsStrip` in `components/CompareView.tsx`):
+  - **Default:** the teammate that weekend, from the entry list. If the teammate didn't start or set no time, the car next to him.
+  - **"Compare with…"** is a native select, a plain list on phones. Its order: teammate, the car ahead, the car behind, anyone in a stewards' case with him, then everyone.
+  - **Facts:** three computed facts. Race: finish, qualifying gap, stops. Qualifying: position, gap, segment reached. Practice: position, best lap, gap.
+  - **Below them:** a small lap-by-lap gap chart, the written head-to-head when one exists, and "Read X's story", which switches the selection.
+  - **Positions chart:** the picked driver is drawn solid and the comparison dashed.
+- **Expert = the debrief** (`components/Debrief.tsx`): the verdict headline stays on top, then three numbered findings and the tables. A dash marks a missing value, with the table's note visible underneath. The long prose and the analysis paragraph are no longer shown in either mode.
+- **Methods page** (`/methods`, linked from every debrief and the footer): fuel correction, degradation, pace against the teammate, pit-stop places and timing, cut lines, sector and corner ranks, long runs. Every figure matches the code.
+- **Proof:** crawl 24/24 (desktop and mobile). It includes the switch-not-stack check in every session of rounds 1, 12 and 17; the vs strip for every driver who took part; `vs=` links restoring; old links redirecting; a `vs=` page at most 900px taller; the debrief in Expert; and the methods page. No sideways scroll at 375px. Screenshots: `docs/screenshots/round3/g-gasly-essential-vs-teammate.png`, `h-gasly-expert-debrief.png` and `h-gasly-expert-debrief-375.png`.
+
 ## Round 3: owner actions
 
 1. ~~Merge PR 1~~ (merged 20 Oct).
@@ -147,9 +167,9 @@ Evidence:
 
 ## Round 3: next 3 actions
 
-1. Owner: merge PR 2, then run the pilot (above).
-2. Me: PR 3 (one-driver selection, vs strip, Expert debrief view, methods page) while the pilot runs.
-3. Me: score the pilot when the owner reports it finished; then PR 4 (Circuit atlas).
+1. Owner: run the pilot (above) and merge PR 3.
+2. Me: score the pilot when the owner reports it finished.
+3. Me: PR 4 (Circuit atlas) on top of PR 3's structure.
 
 # Round 2
 

@@ -48,7 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className="flex-1 min-h-[calc(100vh-3.5rem)]">{children}<PageSources /></main>
       <footer className="border-t mt-16" style={{ borderColor: 'var(--line)' }}>
         <div className="wrap py-6 flex flex-wrap gap-x-6 gap-y-2 justify-between text-[12px] t3">
-          <span>Timing data from OpenF1 and Jolpica. Circuit maps in F1's orientation via MultiViewer.</span>
+          <span>Timing data from OpenF1 and Jolpica. Circuit maps in F1's orientation via MultiViewer. <Link to="/methods" className="underline underline-offset-2 hover:text-[var(--text)]">How the numbers are made</Link></span>
           <span>Not affiliated with Formula 1.</span>
         </div>
       </footer>

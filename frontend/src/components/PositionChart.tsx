@@ -125,7 +125,8 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
                   stroke={dim ? 'var(--line-2)' : colorOf(id)}
                   strokeOpacity={dim ? 0.7 : on ? 1 : 0.75}
                   strokeWidth={on ? 2.5 : 1.25}
-                  strokeDasharray={dashed.has(id) ? (on ? '6 3' : '4 3') : undefined}
+                  // the driver picked is solid; who they're compared with is dashed (REVIEW_ROUND3 D8)
+                  strokeDasharray={selected.length === 2 ? (id === selected[1] ? '6 3' : id === selected[0] ? undefined : dashed.has(id) ? '4 3' : undefined) : dashed.has(id) ? (on ? '6 3' : '4 3') : undefined}
                   isAnimationActive={false}
                   connectNulls
                   activeDot={false}

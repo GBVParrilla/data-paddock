@@ -40,9 +40,9 @@ export function SectorStrip({ outline, stats, headline }: { outline: TrackOutlin
 
 /** The circuit in its real shape, coloured by where the selected driver ranked in each sector
  * (and, when telemetry allows, through each corner). Shown once a driver is picked. */
-export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor, selected, mapIdx, onMapIdx, turnDeltas, turnsNote }: {
+export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor, turnDeltas, turnsNote }: {
   outline: TrackOutline | null; outlineLoading: boolean; stats: SectorStat[]; headline: Headline
-  mapFor?: Driver; selected: Driver[]; mapIdx: number; onMapIdx: (i: number) => void; turnDeltas: TurnDeltas | null
+  mapFor?: Driver; turnDeltas: TurnDeltas | null
   /** Why the corners aren't coloured, when the breakdown was withheld (only sector colours are drawn then). */
   turnsNote?: string
 }) {
@@ -54,9 +54,6 @@ export function CircuitPanel({ outline, outlineLoading, stats, headline, mapFor,
     <section className="panel flex-1 flex flex-col" aria-label="Circuit">
       <div className="panel-head">
         <h2 className="h2">{mapFor ? `${mapFor.name}: sectors and corners` : 'Fastest sectors'}</h2>
-        {selected.length === 2 && (
-          <div className="seg sm">{selected.map((d, i) => <button key={d.id} aria-pressed={i === mapIdx} onClick={() => onMapIdx(i)}>{d.code}</button>)}</div>
-        )}
       </div>
       <div className="flex-1 flex items-center justify-center px-3 sm:px-6 py-4 min-h-[220px] sm:min-h-[340px]">
         {outline ? <TrackMap outline={outline} sectors={tiers} turns={turnTiers} showTurns stroke={11} className="w-full max-h-[460px]" />

@@ -135,6 +135,21 @@ export interface Narrative extends StoryEditInfo {
   generated_at: string | null; model_used: string
   headline?: string | null; summary?: string | null; key_numbers?: { label: string; value: string }[]; glossary_terms?: string[]
   source?: 'claude' | 'template' | 'edited'; replaced_because?: string
+  debrief?: Debrief | null
+}
+/** The Expert view: an engineer's debrief computed in code (narratives/debrief.py, REVIEW_ROUND3 D7). null = no value in the data. */
+export interface Debrief {
+  kind: 'race' | 'qualifying' | 'practice'
+  findings: { n: number; text: string }[]
+  notes: Record<string, string>
+  sectors?: { sector: number; best: string | null; gap: string | null; rank: number | null; of: number | null }[] | null
+  stints?: { stint: number; tyre: string | null; laps: string; lap_count: number; avg_pace: string | null; degradation_s_per_lap: number | null; vs_teammate_same_tyre: string | null }[] | null
+  stops?: { lap: number; pit_lane: string | null; stationary: string | null; positions: string | null; net_places: number | null; timing: string | null }[]
+  segments?: { segment: string; best: string | null; cut_margin: string | null; vs_teammate: string | null }[] | null
+  runs?: { tyre: string | null; laps: string | null; lap_count: number | null; best: string | null }[] | null
+  run_plan?: { tyre: string | null; laps: string; lap_count: number; avg: string | null }[] | null
+  long_runs?: { tyre: string; avg: string | null; laps: number; rank: number | null; of: number | null }[] | null
+  single_lap?: { rank: number | null; of: number | null; best: string | null; gap: string | null }
 }
 export interface WeekendArc extends StoryEditInfo { event_id: number; driver_id: number; arc_text: string; generated_at: string | null; model_used: string; source?: string }
 export interface SeasonArc extends StoryEditInfo { season_id: number; subject_type: 'driver' | 'team'; subject_id: string; through_round: number; arc_text: string; generated_at: string | null; model_used: string; source?: string }

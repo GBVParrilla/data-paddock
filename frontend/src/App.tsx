@@ -9,6 +9,7 @@ import { Home } from './pages/Home'
 const RaceWeekend = lazy(() => import('./pages/RaceWeekend').then((m) => ({ default: m.RaceWeekend })))
 const SeasonPage = lazy(() => import('./pages/SeasonPage').then((m) => ({ default: m.SeasonPage })))
 const RacesPage = lazy(() => import('./pages/RacesPage').then((m) => ({ default: m.RacesPage })))
+const MethodsPage = lazy(() => import('./pages/MethodsPage').then((m) => ({ default: m.MethodsPage })))
 import { ModeProvider } from './state/mode'
 import { StoreProvider } from './state/store'
 
@@ -65,6 +66,7 @@ export default function App() {
                 <Route path="/race/:eventId/driver/:driverRef" element={<RaceWeekend />} />
                 <Route path="/season/:year" element={<SeasonPage />} />
                 <Route path="/season/" element={<Home />} />
+                <Route path="/methods" element={<MethodsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               </Suspense>

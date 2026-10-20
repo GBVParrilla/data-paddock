@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, eventApi, TURNS_UNRELIABLE, type Driver, type SessionRow, type SessionType } from '../api/client'
 import { Boundary, NotFound } from '../components/Boundary'
@@ -14,7 +14,8 @@ import { useFetch } from '../hooks/useFetch'
 import { useTitle } from '../hooks/useTitle'
 import { isRaceLike, SESSION_ORDER, SESSION_SHORT, shortDate } from '../lib/f1'
 import { planSession } from '../lib/mentions'
-import { sectorRanks, useSectorStats } from '../lib/sectors'
+import { defaultVs, sessionOrder } from '../lib/compare'
+import { useSectorStats } from '../lib/sectors'
 import { positionsTitle } from '../lib/takeaways'
 import { slotColors } from '../lib/teamColors'
 import { useMode } from '../state/mode'
@@ -22,22 +23,24 @@ import { useStore } from '../state/store'
 
 // the chart library is loaded only when the position chart scrolls into view
 const PositionChart = lazy(() => import('../components/PositionChart').then((m) => ({ default: m.PositionChart })))
-const CompareView = lazy(() => import('../components/CompareView').then((m) => ({ default: m.CompareView })))
+const VsStrip = lazy(() => import('../components/CompareView').then((m) => ({ default: m.VsStrip })))
 
 /**
  * A race weekend, story first (decision D2): the 30-second summary, the classification beside the key
- * moments, the positions chart, and everything else behind one "More detail". Picking a driver adds
- * their circuit map and story, and opens More detail; Expert mode keeps it open.
+ * moments, the positions chart, and everything else behind one "More detail". A tap selects one driver
+ * (D8): their circuit map and their panel, with the teammate comparison built in (the vs strip); More
+ * detail opens with them. The URL carries `drivers=<id>` and `vs=<id>`; an old `drivers=a,b` link
+ * opens a with vs b.
  */
 export function RaceWeekend() {
   const params = useParams()
   const eventId = Number(params.eventId)
   const driverRef = params.driverRef
   const [search, setSearch] = useSearchParams()
-  const { sessionId, driverIds, setEvent, setSession, toggleDriver, clearDrivers } = useStore()
+  const { sessionId, driverIds, vsId, setEvent, setSession, selectDriver, setVs, clearDrivers } = useStore()
   const { expert } = useMode()
-  const [mapDriver, setMapDriver] = useState(0)
   const detailId = useId()
+  const hydrated = useRef(false)
 
   useEffect(() => {
     setEvent(eventId)
@@ -45,9 +48,22 @@ export function RaceWeekend() {
   useEffect(() => {
     const sid = Number(search.get('session'))
     if (sid) setSession(sid)
-    for (const d of (search.get('drivers') ?? '').split(',').map(Number).filter(Boolean).slice(0, 2)) toggleDriver(d)
+    const [a, b] = (search.get('drivers') ?? '').split(',').map(Number).filter(Boolean)
+    const vs = Number(search.get('vs')) || b || null  // drivers=a,b (before D8) opens a with vs b
+    if (a) selectDriver(a, vs)
+    hydrated.current = true
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId])
+  // the selection lives in the URL, so a link restores exactly what was on screen
+  useEffect(() => {
+    if (!hydrated.current) return
+    setSearch((p) => {
+      const d = driverIds[0]
+      if (d) p.set('drivers', String(d)); else p.delete('drivers')
+      if (d && vsId) p.set('vs', String(vsId)); else p.delete('vs')
+      return p
+    }, { replace: true })
+  }, [driverIds, vsId, setSearch])
 
   const event = useFetch((s) => eventApi.get(eventId, s), [eventId], Number.isFinite(eventId))
   const outline = useFetch((s) => api.trackOutline(eventId, s), [eventId])
@@ -76,7 +92,7 @@ export function RaceWeekend() {
     const race = sessions.find((s) => s.session_type === 'R' && s.ingestion.transforms)
     if (race && sessionId !== race.id) { setSession(race.id); return }
     const match = Object.values(headline.data.drivers).find((d) => d.driver_ref === driverRef)
-    if (match && !driverIds.includes(match.id)) { clearDrivers(); toggleDriver(match.id) }
+    if (match && !driverIds.includes(match.id)) selectDriver(match.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driverRef, headline.data, sessions])
 
@@ -90,12 +106,17 @@ export function RaceWeekend() {
 
   const drivers = useMemo(() => headline.data?.drivers ?? {}, [headline.data])
   const selected: Driver[] = driverIds.map((id) => drivers[String(id)]).filter(Boolean)
-  const colors = slotColors(selected.map((d) => d.team))
-  const mapIdx = Math.min(mapDriver, Math.max(0, selected.length - 1))
-  const mapFor = selected[mapIdx]
+  const mapFor: Driver | undefined = selected[0]
+  // the comparison: the one picked, else the teammate that weekend (or the car next to them if the teammate didn't run)
+  const vsDriver: Driver | undefined = mapFor && headline.data ? drivers[String(vsId ?? defaultVs(headline.data, mapFor.id))] : undefined
+  const started = !!(mapFor && headline.data && sessionOrder(headline.data).find((r) => r.id === mapFor.id)?.ran)
+  const colors = slotColors([mapFor?.team, vsDriver?.team])
   const turnDeltas = useFetch((s) => api.turnDeltas(sessionId!, mapFor!.id, s), [sessionId, mapFor?.id, ready], ready && !!mapFor)
   const stats = useSectorStats(detail.data)
-  const pick = (id: number) => { clearDrivers(); toggleDriver(id) }
+  const qualiSession = sessions.find((s) => s.session_type === (session?.session_type === 'S' ? 'SQ' : 'Q') && s.ingestion.transforms)
+  const quali = useFetch((s) => api.headline(qualiSession!.id, s), [qualiSession?.id], raceLike && !!qualiSession && !!mapFor)
+  const rc = useFetch((s) => api.raceControl(sessionId!, s), [sessionId, ready], ready && !!mapFor)
+  const pick = (id: number) => selectDriver(id)
 
   // what the top of the page says, each fact once (lib/mentions)
   const plan = useMemo(
@@ -109,7 +130,7 @@ export function RaceWeekend() {
   const toggleDetail = () => setSearch((p) => { p.set('detail', detailOpen ? '0' : '1'); return p }, { replace: true })
 
   const sessionLabel = session ? SESSION_SHORT[session.session_type as SessionType] : ''
-  useTitle(event.data ? `${event.data.name}${sessionLabel ? ` · ${sessionLabel}` : ''}${selected[0] ? ` · ${selected.map((d) => d.code).join(' vs ')}` : ''}` : null)
+  useTitle(event.data ? `${event.data.name}${sessionLabel ? ` · ${sessionLabel}` : ''}${mapFor ? ` · ${mapFor.code}` : ''}` : null)
 
   if (!Number.isFinite(eventId) || event.error || (sessionsQ.error && !sessionsQ.loading)) return <NotFound what="race" />
 
@@ -151,11 +172,11 @@ export function RaceWeekend() {
           <section className="panel lg:col-span-6 xl:col-span-5 flex flex-col min-w-0" aria-label="Classification">
             <div className="panel-head pb-2">
               <h2 className="h2">Classification</h2>
-              {selected.length > 0 ? <button className="btn-ghost text-[12px]" onClick={clearDrivers}>Clear selection</button> : <span className="label" data-hint>Pick up to two drivers</span>}
+              {selected.length > 0 ? <button className="btn-ghost text-[12px]" onClick={clearDrivers}>Clear selection</button> : <span className="label" data-hint>Pick a driver</span>}
             </div>
             <div className="px-1.5 pb-1.5 overflow-x-auto">
               <Boundary label="The classification">
-                {headline.data ? <Classification headline={headline.data} selected={driverIds} colors={colors} onSelect={toggleDriver} /> : <div className="skeleton h-[600px] m-2" />}
+                {headline.data ? <Classification headline={headline.data} selected={driverIds} colors={colors} onSelect={pick} /> : <div className="skeleton h-[600px] m-2" />}
               </Boundary>
             </div>
           </section>
@@ -163,7 +184,7 @@ export function RaceWeekend() {
           <div className="lg:col-span-6 xl:col-span-7 flex flex-col gap-4 min-w-0">
             {mapFor && headline.data && (
               <Boundary label="The circuit map">
-                <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} selected={selected} mapIdx={mapIdx} onMapIdx={setMapDriver} turnDeltas={turnDeltas.data} turnsNote={turnDeltas.error?.message === TURNS_UNRELIABLE ? TURNS_UNRELIABLE : undefined} />
+                <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} turnDeltas={turnDeltas.data} turnsNote={turnDeltas.error?.message === TURNS_UNRELIABLE ? TURNS_UNRELIABLE : undefined} />
               </Boundary>
             )}
             <Boundary label="Key moments">
@@ -185,7 +206,7 @@ export function RaceWeekend() {
             <Boundary label="The position chart">
               {detail.data && headline.data
                 ? <WhenVisible minHeight={360}><Suspense fallback={<div className="skeleton h-[360px]" />}>
-                    <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={driverIds} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={toggleDriver} />
+                    <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={mapFor ? [mapFor.id, ...(vsDriver && started ? [vsDriver.id] : [])] : []} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={pick} />
                   </Suspense></WhenVisible>
                 : <div className="skeleton h-[420px]" />}
             </Boundary>
@@ -195,12 +216,20 @@ export function RaceWeekend() {
 
       {ready && sessionId !== null && (
         <div className="mt-4 space-y-4">
-          {selected.length === 2 && headline.data && <Boundary label="The comparison"><Suspense fallback={<div className="panel skeleton h-64" />}><CompareView eventId={eventId} sessionId={sessionId} headline={headline.data} a={selected[0]} b={selected[1]} colors={colors} /></Suspense></Boundary>}
-          {selected.map((d, i) => (
-            <Boundary key={d.id} label={`${d.name}'s story`}>
-              <DriverStory eventId={eventId} sessionId={sessionId} sessions={sessions} driver={d} color={colors[i]} onSession={setSession} sectorRanks={sectorRanks(stats, d.id)} />
+          {mapFor && (
+            <Boundary key={mapFor.id} label={`${mapFor.name}'s story`}>
+              <DriverStory eventId={eventId} sessionId={sessionId} sessions={sessions} driver={mapFor} color={colors[0]} onSession={setSession}>
+                {started && vsDriver && headline.data && (
+                  <Boundary label="The comparison">
+                    <Suspense fallback={<div className="skeleton h-40 mx-5 mb-5" />}>
+                      <VsStrip eventId={eventId} sessionId={sessionId} headline={headline.data} quali={quali.data?.qualifying ?? null} a={mapFor} b={vsDriver}
+                        colors={[colors[0], colors[1]]} cases={rc.data?.cases ?? []} onVs={setVs} onRead={(id) => selectDriver(id)} />
+                    </Suspense>
+                  </Boundary>
+                )}
+              </DriverStory>
             </Boundary>
-          ))}
+          )}
           {detail.data && headline.data && session && (
             <section className="panel" aria-label="More detail">
               <button type="button" className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[var(--hover)] rounded-[inherit]"
