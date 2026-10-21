@@ -119,6 +119,7 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H9 | Weather leaves the prompt entirely, rain included | Keep "rain was reported" | The data can't say whether rain changed a race; the model wrote it as filler in 59 stories | `prompt_sheet` |
 | H10 | No fourth prompt iteration: pilot 3's misses are recorded with a model recommendation instead | Another round of prompt rules | The prompt allows three; v4–v6 each removed the pattern they targeted and the average stayed at 3.9–4.15 | — |
 | H11 | "Top/bottom half of the grid" is checked against the grid slot in a race and the classified position elsewhere; a claim about sectors is left to `check_sectors` | Ban the phrase | It is a fair phrase when true (Sainz "started from the back half of the grid" passes) | `check_half` |
+| H12 | Haiku writes every story; the 4.3 gate is recorded as missed (4.09), not chased further | Sonnet for race and sprint | Owner's call (cost); the truth checks and invariants hold either way | `F1_NARRATIVE_MODEL` |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -332,11 +333,8 @@ Average **4.09** (v5: 4.15, v4: 3.86, v3: 3.67) against the 4.3 gate; none below
 
 1. ~~Merge PR 1~~ (merged 20 Oct). ~~Merge PR 2~~ (merged 20 Oct). ~~Pilot v4~~ (run 20 Oct; above). ~~Merge PR 3~~ (merged 20 Oct).
 2. ~~Pilot-fixes PR, effort medium, pilot 2~~ (21 Oct). ~~Prompt v6 PR, pilot 3~~ (21 Oct; above).
-4. **Decide on the story model** (recommendation below). The round's three prompt iterations are spent and the gate is still failed (4.09 against 4.3).
-   - **Recommended:** Sonnet 5.5 for race and sprint stories (108 of the 324 in the pilot rounds; they need cause and effect, and four of the five weakest of the 15 are races or sprints), Haiku for qualifying and practice (the one qualifying slip is now caught by `check_half`). It needs a small code change (a per-session-type model setting), which I'll make if you choose it. Then one pilot on rounds 1, 12 and 17 with the same settings. It costs more per story on that third of the stories; check the current price list before choosing.
-   - **Or** accept 4.09 and run the full-season stories-only run on Haiku now. No story in the 15 is below 3, there are 0 published violations, and the one factual slip is now caught by a check.
-   - **Or** keep the pilot stories up and stop here; templates cover the other rounds.
-3. *(done)* The first pilot: Actions → Site → Run workflow, mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800`. It writes about 330 session stories (shorter now: headline and Essential only), about 140 head-to-heads and 66 weekend arcs, plus retries. Tell me when it has finished; I'll score the same 15 stories against the gate (average 4.3 or more, none below 3, no more than 10% of a session's headlines sharing a shape, no missing-data sentences). `MAX_NEW_STORIES` stays 0 for the daily run.
+4. ~~Decide on the story model~~: **Haiku for every story** (owner, 21 Oct; decision H12). The gate stays failed at 4.09; no story of the 15 is below 3, 0 published violations.
+5. **Run the full-season stories-only run**: Actions → Site → Run workflow, mode `stories-only`, story_rounds empty (every round), max_new_stories `3000`. About 1,530 session stories are still on older prompts or templates (324 of 1,858 are v6). At the pilot's ratios, that means about 310 arcs and 660 head-to-heads plus 10% retries: roughly 2,750 Claude calls. If the 270-minute budget runs out first, run it again with the same settings; stories already on v6 are skipped. `MAX_NEW_STORIES` stays 0 for the daily run. Tell me when it's done; I'll check the pass rate and invariants, then crawl the live site.
 
 ## Round 3: scorecard log
 
@@ -346,8 +344,8 @@ Average **4.09** (v5: 4.15, v4: 3.86, v3: 3.67) against the 4.3 gate; none below
 
 ## Round 3: next 3 actions
 
-1. Owner: merge the pilot 3 review PR and decide on the story model (owner action 4).
-2. Me: if Sonnet for race and sprint, the per-session-type model setting; then the owner runs one pilot and I score it.
+1. Owner: merge the pilot 3 review PR, then the full-season stories-only run (owner action 5).
+2. Me: check that run (pass rate, invariants, headline shapes).
 3. Me: crawl the live site; re-score the BENCHMARKS §7 scorecard and the five personas (light and dark); then the small PRs (spoiler-free mode, follow a driver, changelog) and finding #61.
 
 # Round 2
