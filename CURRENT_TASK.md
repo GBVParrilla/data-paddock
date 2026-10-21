@@ -10,13 +10,13 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 2. PR 2, Workstream H pipeline: merged (PR #8, 20 Oct). **The owner runs the pilot** (stories-only, rounds 1,12,17, max_new_stories 800). Then score the same 15 stories (list in PROGRESS.md round 2 "Pilot") against the gate: average ≥ 4.3, none below 3, ≤ 10% of a session's headlines sharing a shape, no missing-data sentences. Don't change stories until the owner reports the pilot finished.
 3. PR 3, Workstreams G and H UI: merged (PR #9). Pilot v4 scored 3.86 (gate 4.3; PROGRESS.md "Pilot (prompt v4)"). **Pilot-fixes PR open** (prompt v5); the owner then decides effort medium and runs a second pilot.
 4. PR 4, Workstream E (Circuit atlas): merged (PR #11). Finding #61 (driver-page performance) open.
-4b. Pilot 2 (v5, effort medium): 99.7% Claude, 0 violations, 15-story average 4.15 (gate 4.3). **Prompt v6 PR open**; then pilot 3, the last under the round's three-iteration limit.
+4b. Pilot 2 (v5): average 4.15. Prompt v6 merged (PR #12). Pilot 3 (v6): 98.8% Claude, 0 violations, filler gone, average **4.09** (gate 4.3). All three prompt iterations are spent. **Pilot 3 review PR open** (adds `check_half`). The owner decides the story model: Sonnet for race and sprint (recommended; needs a per-session-type model setting), or accept Haiku.
 5. Small PRs: spoiler-free mode, follow a driver, a changelog.
 
 ## State
 - This session may push only to `claude/laughing-clarke-t71435`. Each next workstream restarts that branch from `main` after the previous PR merges. Prepare later work locally meanwhile.
 - The turn-delta version is now 3, so the next daily `full` run recomputes every breakdown within its 270-minute budget (no Claude calls). Until then, version 2 breakdowns show behind the plausibility gate.
-- `PROMPT_VERSION` is 4: Claude writes headline + Essential only; `debrief` (code) is in every `narrative.json`. Templates keep long text until PR 3 swaps it for the debrief view.
+- `PROMPT_VERSION` is 6: Claude writes headline + Essential only; `debrief` (code) is in every `narrative.json`. Style rules apply at generation only (`style=False` at export).
 - Local dev DB: `data/f1.db` is the latest snapshot after `run_pipeline.py --no-ingest --no-stories`. `scratchpad/measure.py`-style checks are now invariants (`tests/invariants/test_stories_round3.py`).
 - `MAX_NEW_STORIES` stays 0. A pilot must pass `max_new_stories` explicitly.
 
@@ -30,5 +30,5 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 - Never ask questions. Record each call under "Decisions made" in the PR and in PROGRESS.md.
 
 ## Next steps
-1. Owner merges the prompt v6 PR and runs pilot 3; I re-score the same 15. If it passes: owner runs the full-season stories-only run.
+1. Owner merges the pilot 3 review PR and decides the model (PROGRESS.md owner action 4). If Sonnet: add a per-session-type model setting, then one pilot, then re-score the same 15. If Haiku: owner runs the full-season stories-only run.
 2. Meanwhile: re-score the BENCHMARKS §7 scorecard and the five personas (light and dark), then the small PRs (spoiler-free mode, follow a driver, changelog).
