@@ -86,7 +86,7 @@ export function RacesPage() {
             {upcoming.map((e) => (
               <Link key={e.id} to={`/race/${e.id}`} className="grid grid-cols-[3rem_1fr_auto] sm:grid-cols-[3rem_16rem_1fr_auto] items-center gap-4 px-5 h-12 hover:bg-[var(--hover)] text-[13px]" style={{ borderColor: 'var(--line)' }}>
                 <span className="t3 num">R{String(e.round).padStart(2, '0')}</span>
-                <span className="font-medium truncate">{e.name}{e.has_sprint ? <span className="t3 font-normal"> · Sprint</span> : ''}</span>
+                <span className="font-medium truncate">{e.name}{e.has_sprint ? <span className="t3 font-normal">, sprint</span> : ''}</span>
                 <span className="t3 truncate hidden sm:block">{e.circuit_name}</span>
                 <span className="t2 num">{shortDate(e.event_date)}</span>
               </Link>

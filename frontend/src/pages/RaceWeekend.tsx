@@ -5,14 +5,13 @@ import { Boundary, NotFound } from '../components/Boundary'
 import { Classification } from '../components/Classification'
 import { DeepDive } from '../components/DeepDive'
 import { DriverStory } from '../components/DriverStory'
-import { Freshness } from '../components/Freshness'
 import { WhenVisible } from '../components/WhenVisible'
-import { CircuitPanel, SectorStrip } from '../components/race/CircuitPanel'
+import { circuitOverlay } from '../lib/circuitOverlay'
+import { RaceSheet } from '../components/race/RaceSheet'
 import { KeyMoments } from '../components/race/KeyMoments'
-import { SessionSummary } from '../components/race/SessionSummary'
 import { useFetch } from '../hooks/useFetch'
 import { useTitle } from '../hooks/useTitle'
-import { isRaceLike, SESSION_ORDER, SESSION_SHORT, shortDate } from '../lib/f1'
+import { isRaceLike, SESSION_ORDER, SESSION_SHORT } from '../lib/f1'
 import { planSession } from '../lib/mentions'
 import { defaultVs, sessionOrder } from '../lib/compare'
 import { useSectorStats } from '../lib/sectors'
@@ -115,7 +114,7 @@ export function RaceWeekend() {
   const stats = useSectorStats(detail.data)
   const qualiSession = sessions.find((s) => s.session_type === (session?.session_type === 'S' ? 'SQ' : 'Q') && s.ingestion.transforms)
   const quali = useFetch((s) => api.headline(qualiSession!.id, s), [qualiSession?.id], raceLike && !!qualiSession && !!mapFor)
-  const rc = useFetch((s) => api.raceControl(sessionId!, s), [sessionId, ready], ready && !!mapFor)
+  const rc = useFetch((s) => api.raceControl(sessionId!, s), [sessionId, ready], ready)
   const pick = (id: number) => selectDriver(id)
 
   // what the top of the page says, each fact once (lib/mentions)
@@ -141,12 +140,7 @@ export function RaceWeekend() {
         <span className="mx-2">/</span>
         <span>Round {event.data?.round ?? ''}</span>
       </nav>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-        <div className="min-w-0">
-          <h1 className="h-feature">{event.data?.name ?? <span className="skeleton inline-block h-10 w-72 align-middle" />}</h1>
-          <p className="t2 mt-2 text-[13px]">{event.data && [event.data.circuit_name, event.data.country, shortDate(event.data.event_date)].filter(Boolean).join(' · ')}</p>
-          <Freshness className="mt-1" />
-        </div>
+      <div className="flex flex-wrap items-start justify-end gap-4 mb-4 min-h-[37px]">
         <div className="seg max-w-full overflow-x-auto" role="tablist" aria-label="Session">
           {sessions.map((s) => (
             <button key={s.id} role="tab" aria-selected={s.id === sessionId} disabled={!s.ingestion.transforms} onClick={() => setSession(s.id)}>
@@ -157,17 +151,21 @@ export function RaceWeekend() {
       </div>
 
       {sessions.length > 0 && !sessions.some((s) => s.ingestion.transforms) && <div className="panel p-8 text-center t2">No sessions processed for this event yet.</div>}
-      {sessionsQ.loading && <div className="skeleton h-40 mb-4" />}
 
-      {ready && session && (
-        <Boundary label="The session summary">
-          {headline.data && moments.data && plan
-            ? <div className="mb-4"><SessionSummary headline={headline.data} moments={moments.data} sentences={plan.sentences} sessionType={session.session_type} /></div>
-            : <div className="skeleton h-[172px] mb-4" />}
+      {!(sessions.length > 0 && !sessions.some((s) => s.ingestion.transforms)) && (
+        <Boundary label="The race sheet">
+          <div className="mb-8">
+            <RaceSheet event={event.data} outline={outline.data}
+              data={ready && session && headline.data && plan ? {
+                sessionType: session.session_type, headline: headline.data, sentences: plan.sentences, moments: plan.moments, events: rc.data?.events ?? [],
+                overlay: mapFor ? circuitOverlay({ stats, mapFor, turnDeltas: turnDeltas.data, turnsNote: turnDeltas.error?.message === TURNS_UNRELIABLE ? TURNS_UNRELIABLE : undefined }) : undefined,
+              } : null} />
+          </div>
         </Boundary>
       )}
+      {!sessionsQ.loading && sessions.length > 0 && !sessions.some((s) => s.ingestion.transforms) && <h1 className="h-feature mb-6">{event.data?.name}</h1>}
 
-      {ready && (
+      {ready && plan && (
         <div className="grid lg:grid-cols-12 gap-4 items-start">
           <section className="panel lg:col-span-6 xl:col-span-5 flex flex-col min-w-0" aria-label="Classification">
             <div className="panel-head pb-2">
@@ -182,22 +180,16 @@ export function RaceWeekend() {
           </section>
 
           <div className="lg:col-span-6 xl:col-span-7 flex flex-col gap-4 min-w-0">
-            {mapFor && headline.data && (
-              <Boundary label="The circuit map">
-                <CircuitPanel outline={outline.data} outlineLoading={outline.loading} stats={stats} headline={headline.data} mapFor={mapFor} turnDeltas={turnDeltas.data} turnsNote={turnDeltas.error?.message === TURNS_UNRELIABLE ? TURNS_UNRELIABLE : undefined} />
-              </Boundary>
-            )}
             <Boundary label="Key moments">
               {plan && headline.data
-                ? <KeyMoments moments={plan.moments} midfield={plan.midfield} drivers={drivers} onPick={pick}
-                    top={!mapFor ? <SectorStrip outline={outline.data} stats={stats} headline={headline.data} /> : undefined} />
+                ? <KeyMoments moments={plan.moments} midfield={plan.midfield} drivers={drivers} onPick={pick} />
                 : moments.loading && <div className="panel skeleton h-64" />}
             </Boundary>
           </div>
         </div>
       )}
 
-      {ready && raceLike && (
+      {ready && plan && raceLike && (
         <section className="panel mt-4" aria-label="Race positions">
           <div className="panel-head">
             <h2 className="h2">{detail.data && headline.data ? positionsTitle(detail.data.position_by_lap, headline.data.race ?? [], drivers) : 'Positions by lap'}</h2>
@@ -214,7 +206,7 @@ export function RaceWeekend() {
         </section>
       )}
 
-      {ready && sessionId !== null && (
+      {ready && plan && sessionId !== null && (
         <div className="mt-4 space-y-4">
           {mapFor && (
             <Boundary key={mapFor.id} label={`${mapFor.name}'s story`}>
@@ -232,7 +224,7 @@ export function RaceWeekend() {
           )}
           {detail.data && headline.data && session && (
             <section className="panel" aria-label="More detail">
-              <button type="button" className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[var(--hover)] rounded-[inherit]"
+              <button type="button" className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[var(--hover)]"
                 aria-expanded={detailOpen} aria-controls={detailId} onClick={toggleDetail}>
                 <span className="h2">More detail</span>
                 <span className="label flex items-center gap-2">
@@ -242,7 +234,7 @@ export function RaceWeekend() {
               </button>
               {detailOpen && (
                 <div id={detailId} className="border-t" style={{ borderColor: 'var(--line)' }}>
-                  <Boundary label="The deep dive"><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} turnsFor={turnIndex.data?.drivers ?? null} /></Boundary>
+                  <Boundary label="The deep dive"><WhenVisible minHeight={420}><DeepDive sessionType={session.session_type} sessionId={sessionId} detail={detail.data} headline={headline.data} selected={selected} turnsFor={turnIndex.data?.drivers ?? null} /></WhenVisible></Boundary>
                 </div>
               )}
             </section>
@@ -252,3 +244,4 @@ export function RaceWeekend() {
     </div>
   )
 }
+

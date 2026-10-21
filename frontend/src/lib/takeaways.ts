@@ -1,6 +1,5 @@
-import type { Driver, Headline, HeadlineRace, PositionByLap } from '../api/client'
+import type { Driver, HeadlineRace, PositionByLap } from '../api/client'
 import { lastName } from './f1'
-import type { SectorStat } from './sectors'
 
 const TIMES = ['', 'once', 'twice']
 
@@ -30,12 +29,4 @@ export function positionsTitle(rows: PositionByLap[], race: HeadlineRace[], driv
   let since = laps[laps.length - 1]
   for (let i = laps.length - 1; i >= 0 && leader.get(laps[i]) === winner.driver_id; i--) since = laps[i]
   return `${name} led from lap ${since}`
-}
-
-/** "Leclerc was fastest in every sector" / "Fastest sectors: Piastri, Leclerc, Leclerc". */
-export function sectorTitle(stats: SectorStat[], headline: Headline): string {
-  const names = stats.map((s) => (s.holder ? lastName(headline.drivers[String(s.holder)]?.name) : ''))
-  if (!names.some(Boolean)) return 'Fastest sectors'
-  if (names.every((n) => n && n === names[0])) return `${names[0]} was fastest in every sector`
-  return `Fastest sectors: ${names.map((n) => n || '–').join(', ')}`
 }

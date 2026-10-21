@@ -10,7 +10,7 @@ export function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 sm:gap-2.5" aria-label="Data Paddock home">
       <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="5" width="8" height="22" rx="2" fill="var(--text)" /><rect x="17" y="5" width="9" height="9" rx="2" fill="var(--accent)" /></svg>
-      <span className="font-semibold tracking-tight whitespace-nowrap text-[15px] hidden sm:inline">Data Paddock</span>
+      <span className="font-semibold whitespace-nowrap text-[15px] hidden sm:inline">Data Paddock</span>
     </Link>
   )
 }

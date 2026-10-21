@@ -23,9 +23,9 @@ export function PodiumChips({ podium }: { podium: Driver[] }) {
 export function RaceCard({ event, footer }: { event: Event; footer?: ReactNode }) {
   const color = event.winner ? teamColor(event.winner.team) : 'var(--text-3)'
   return (
-    <Link to={`/race/${event.id}`} className="panel lift flex flex-col p-4" aria-label={`${event.name}, round ${event.round}`}>
+    <Link to={`/race/${event.id}`} className="lift flex flex-col p-4 border-t-2" style={{ borderColor: 'var(--ink)' }} aria-label={`${event.name}, round ${event.round}`}>
       <div className="flex items-center justify-between label">
-        <span className="num">R{String(event.round).padStart(2, '0')}{event.has_sprint ? ' · Sprint' : ''}</span>
+        <span className="num">Round {event.round}{event.has_sprint ? ', sprint weekend' : ''}</span>
         <span>{shortDate(event.event_date)}</span>
       </div>
       <div className="h-32 my-4 flex items-center justify-center">

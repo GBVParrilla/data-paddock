@@ -3,6 +3,7 @@ import type { Headline, PivotalMoment } from '../../api/client'
 import { factOf, type MidfieldItem } from '../../lib/mentions'
 import { teamColor } from '../../lib/teamColors'
 import { Term } from '../Glossary'
+import { orderMoments } from '../../lib/sheet'
 
 const LABEL: Record<string, { text: string; term?: string }> = {
   dns: { text: 'Did not start' }, dnf: { text: 'Retirement' }, recovery: { text: 'Recovery' }, drop: { text: 'Lost places' },
@@ -25,11 +26,12 @@ export function KeyMoments({ moments, midfield, drivers, onPick, top }: {
   moments: PivotalMoment[]; midfield: MidfieldItem[]; drivers: Headline['drivers']; onPick: (id: number) => void; top?: ReactNode
 }) {
   if (!moments.length && !midfield.length && !top) return null
-  const ordered = [...moments].sort((a, b) => (a.lap_number ?? 9999) - (b.lap_number ?? 9999) || b.magnitude_score - a.magnitude_score)
-  const rows: { key: string; driverId: number | null; lap: string; kind: ReactNode; text: string; detail?: string | null; fact: string }[] = [
-    ...ordered.map((m) => {
+  // numbered as on the race sheet's drawing (orderMoments): the same moment has the same number in both places
+  const ordered = orderMoments(moments)
+  const rows: { key: string; n?: number; driverId: number | null; lap: string; kind: ReactNode; text: string; detail?: string | null; fact: string }[] = [
+    ...ordered.map((m, i) => {
       const kind = LABEL[m.moment_type] ?? { text: m.moment_type.replace(/_/g, ' ') }
-      return { key: `m${m.id}`, driverId: m.driver_id, lap: lapLabel(m), kind: kind.term ? <Term k={kind.term}>{kind.text}</Term> : kind.text, text: m.headline ?? m.description, detail: m.detail, fact: factOf(m) }
+      return { key: `m${m.id}`, n: i + 1, driverId: m.driver_id, lap: lapLabel(m), kind: kind.term ? <Term k={kind.term}>{kind.text}</Term> : kind.text, text: m.headline ?? m.description, detail: m.detail, fact: factOf(m) }
     }),
     ...midfield.map((x) => ({ key: `f${x.driver_id}`, driverId: x.driver_id, lap: '', kind: 'Midfield', text: x.text, fact: x.fact })),
   ]
@@ -43,6 +45,7 @@ export function KeyMoments({ moments, midfield, drivers, onPick, top }: {
             const d = r.driverId !== null ? drivers[String(r.driverId)] : undefined
             const body = (
               <>
+                <span className="num font-bold text-[13px] w-5 shrink-0 pt-[2px]" data-moment-n={r.n}>{r.n ?? ''}</span>
                 <span className="num t3 text-[12px] w-12 shrink-0 pt-[3px]">{r.lap}</span>
                 <span className="swatch h-4 mt-[3px] shrink-0" style={{ background: d ? teamColor(d.team) : 'var(--yellow)' }} />
                 <span className="min-w-0">
@@ -56,7 +59,7 @@ export function KeyMoments({ moments, midfield, drivers, onPick, top }: {
               <li key={r.key} className="border-t first:border-t-0" style={{ borderColor: 'var(--line)' }} data-fact={r.fact}>
                 {d
                   ? <div role="button" tabIndex={0} onClick={() => onPick(d.id)} onKeyDown={(e) => { if (e.key === 'Enter') onPick(d.id) }}
-                      className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-[var(--hover)] rounded-md px-1 cursor-pointer">{body}</div>
+                      className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-[var(--hover)] px-1 cursor-pointer">{body}</div>
                   : <div className="flex items-start gap-3 py-2.5 px-1">{body}</div>}
               </li>
             )

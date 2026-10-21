@@ -34,7 +34,7 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 | 56 | P2 | A lap-1 retirement with "no stated reason" | H | fixed in PR 2 (`retirement_context`: R12 Verstappen now reads "His race ended on lap 1. The race was red-flagged on lap 2."; 2 before, 0 after) |
 | 57 | P2 | Home repeats the driver's name | H | fixed in PR 2 (`MidfieldLine` in `Home.tsx`) |
 | 58 | P2 | DNS template repeats its own summary | H | fixed in PR 2 (no full story for a DNS; invariant) |
-| 59 | P1 | Generic dark-card look | E | open |
+| 59 | P1 | Generic dark-card look | E | fixed in PR 4 (the Circuit atlas: design lint `scripts/check-design.mjs` finds 33 tells on `main`, 0 here; before/after screenshots in `docs/screenshots/round3/atlas/`) |
 | 60 | P2 | The checker would ban a true fact ("standing in") | H | fixed in PR 2: stand-in claims are checked against the entry list, not banned. The round 2 pilot review was wrong to call Lawson's "standing in" invented: he drove for Red Bull at rounds 12–14 |
 
 ### #48 and #49: what was wrong (Workstream F)
@@ -106,6 +106,11 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H4 | A candidate shape shared by a quarter of the field counts for half its weight, rather than always moving to the back | Always last | Gasly's "Pitting just before the VSC was unlucky" is a shared situation and still his best story | `variety.SHARED_SHARE`, `SHARED_WEIGHT` |
 | H5 | The 10% headline-shape gate applies to Claude-written stories; template headlines vary only as far as their candidates allow (alternates, new practice candidates) | Force variety in templates | A practice template often has only a teammate comparison; the pilot and the full-season run replace templates | `test_claude_headlines_in_a_session_rarely_share_a_shape` |
 | H6 | Stories from before v4 are re-checked with the new rules at export (headline, Essential, and their long text and analysis) | Grandfather them | "0 published violations"; 98 of the 425 pilot stories now fall back to templates until the pilot rewrites them | `present_driver_session` |
+| E1 | The race sheet replaces the summary panel and the circuit panel; the fastest-sectors strip goes | Keep both beside the sheet | The sheet is the drawing; a second map below it said the same thing twice | `RaceSheet`, `circuitOverlay` |
+| E2 | Bottom-quarter timing is graphite, not red | Keep a red | The review's palette: colour for teams and timing tiers that mean something; the slowest quarter isn't news | `--red` in `index.css` |
+| E3 | Loading placeholders are still (no shimmer) | Keep the shimmer | One motion moment on the site, the track drawing | `.skeleton` |
+| E4 | Everything under the race sheet waits for the sheet's data | Render the classification first | It was pushed down when the taller sheet arrived (layout shift) | `RaceWeekend.tsx` |
+| E5 | Screenshots are JPEG, full page up to 2,600px | Full PNGs | 32 PNGs would add about 20 MB to the repository; the JPEGs are 4.3 MB | `scripts/shot.mjs` |
 | G1 | The comparison has no "off" state: the strip always shows, teammate by default | A toggle to hide it | D8 builds the teammate comparison into the panel; one less control | `DriverStory` children in `RaceWeekend.tsx` |
 | G2 | Without a written head-to-head, the strip shows only the three facts and the gap chart (the computed head-to-head sentences are gone) | Keep them | They repeated the three facts in prose | `VsStrip` |
 | G3 | The long story and the analysis paragraph are no longer shown, even for templates and older stories that have them | Show them in Expert under the debrief | D7: Expert swaps the prose for the debrief; Essential stays the short story | `DriverStory.tsx` |
@@ -195,6 +200,60 @@ Average **3.86** (v3: 3.67) against a 4.3 gate; none below 3. **Gate failed** on
 2. **Sonnet 5.5 for race and sprint stories only** (110 of the 324 in this pilot). Those are where the weakest stories were (Pérez, Stroll, Russell's "late"). It needs a small code change to pick the model by session type, which I'd add when asked.
 
 I'd try 1 first with the second pilot; it's one variable and no code.
+
+### Workstream E (PR 4): the Circuit atlas
+
+- **Tokens** (`index.css`):
+  - Paper, ink, graphite and rule. Light by default, dark slate from the system setting.
+  - Timing colours for data only; the bottom quarter is graphite.
+  - Radius is 0 on sections and 3px on controls.
+- **Contrast** (WCAG AA): ink on paper is 14.3:1 light and 13.1:1 dark; graphite is 5.5:1 and 6.0:1. Team colours only fill lines and swatches, never text, so no team colour needed a text variant.
+- **Type:** Archivo, self-hosted (`public/fonts/archivo-var.woff2`, 74 KB, OFL; Google Fonts dropped).
+  - Race names and verdicts at width 125, weight 800.
+  - Body at width 100.
+  - Timings at width 75 with tabular figures.
+  - Sentence case everywhere.
+- **The race sheet** (`components/race/RaceSheet.tsx`):
+  - The circuit drawn large on a dot grid with registration marks, and corner callouts on leader lines.
+  - The 30-second summary as the drawing's caption.
+  - The title block in the corner (round, date, laps, winner, DNF and DNS, neutralisations) in place of the stat chips and middle-dot meta.
+  - The race name shows as soon as the event loads and stays the same element.
+- **Pinned key moments:** numbered as in the Key moments list.
+  - A moment is pinned at a corner when race control named a turn on that lap for that driver, or at the pit straight for a pit-stop moment.
+  - The rest sit in the margin in lap order (`lib/sheet.ts`).
+- **Picking a driver** recolours the drawing with his sector and corner ranks; the legend and sector gaps sit under it (`lib/circuitOverlay.tsx`). His panel follows below.
+- **Home:**
+  - The 4 latest circuits are drawn large in the winner's colour, the latest with its midfield story.
+  - The championship is a gap ladder: a rule at the leader, each driver's bar measuring his gap.
+- **Charts:** ink axes, dotted rule gridlines, team-coloured lines, the comparison dashed.
+- **One motion moment:** on a race page's first view the track inks in (1.2s), then the winner's colour traces one lap. Nothing else moves; loading placeholders are still too. Reduced motion gets the finished drawing.
+- **Design lint** (`scripts/check-design.mjs`, in `npm run lint`): uppercase or tracked labels, → in links, middle-dot meta in components and pages, radius over 3px outside data dots, a near-black background.
+- **Open Graph images:** paper, dot grid, registration marks, the race or driver name, the verdict headline and the track drawing.
+
+**Proof:**
+- Crawl 24/24 (desktop and mobile), including the corner-colour check, which no longer skips when nothing is withheld. Unit tests 74, invariants 245.
+- Screenshots, before (`main`) and after: home, `/race/1`, Gasly's race and Gasly in Expert, light and dark, 1360px and 375px (`docs/screenshots/round3/atlas/`, 32 JPEGs).
+- Lighthouse, mobile. Medians of 3 runs, the same snapshot served gzipped like GitHub Pages:
+
+| Page | Performance main | Performance PR 4 | Accessibility main | Accessibility PR 4 | CLS main | CLS PR 4 |
+|---|---|---|---|---|---|---|
+| Home | 99 | 99 | 100 | 100 | 0.063 | 0.004 |
+| /race/1 | 94 | 94 | 100 | 100 | 0.095 | 0.030 |
+| /race/1/driver/gasly | 83 | 79 | 97 | 100 | 0.095 | 0.030 |
+| …?mode=expert | 83 | 87 | 97 | 100 | 0.076 | 0.020 |
+
+The performance gate (90) holds for home and race pages but not for driver pages, on `main` or here. **#61** below.
+
+**Found on the way and fixed:**
+- Layout shift: home was 0.47 at first, from placeholders the wrong size and from a late freshness line.
+- A contrast failure on `main`'s driver pages: faded driver codes in the tyre chart.
+- A label/name mismatch on home links.
+
+## Round 3: new findings
+
+| # | Sev | Finding | Evidence | Status |
+|---|---|---|---|---|
+| 61 | P2 | Driver pages score 79–87 on mobile performance (gate 90), on `main` too | Total blocking time is about 400ms on both, against about 50ms on a race page without a driver. The profile shows style, layout and many small tasks on a long page (classification, positions chart, debrief, vs strip), not one hot function. Deferring the deep dive didn't move it | open: next, measure with the classification virtualised or the positions chart drawn as one path |
 
 ## Round 3: owner actions
 

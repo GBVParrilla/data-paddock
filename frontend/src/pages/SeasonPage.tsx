@@ -13,9 +13,9 @@ import { useStore } from '../state/store'
 // one neutral ramp: wins brightest, podiums, then points finishes; the rest stay unfilled
 function cell(pos: number | null | undefined): { background: string; color: string; fontWeight: number } {
   if (!pos) return { background: 'transparent', color: 'var(--text-3)', fontWeight: 400 }
-  if (pos === 1) return { background: '#e7e9ec', color: 'var(--bg)', fontWeight: 700 }
-  if (pos <= 3) return { background: '#9aa1ab', color: 'var(--bg)', fontWeight: 600 }
-  if (pos <= 10) return { background: '#2c323a', color: 'var(--text)', fontWeight: 500 }
+  if (pos === 1) return { background: 'var(--ink)', color: 'var(--paper)', fontWeight: 700 }
+  if (pos <= 3) return { background: 'var(--graphite)', color: 'var(--paper)', fontWeight: 600 }
+  if (pos <= 10) return { background: 'var(--panel-2)', color: 'var(--text)', fontWeight: 500 }
   return { background: 'transparent', color: 'var(--text-3)', fontWeight: 400 }
 }
 
@@ -81,7 +81,7 @@ function Leader({ rows, rounds }: { rows: StandingRow[]; rounds: number[] }) {
       <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: teamColor(a.team) }} />
       <div className="kicker">Championship leader</div>
       <div className="h-feature mt-3">{a.name.split(' ').at(-1)}</div>
-      <div className="t2 text-[13px] mt-1">{a.name} · {a.team}</div>
+      <div className="t2 text-[13px] mt-1">{a.name}, {a.team}</div>
       <div className="grid grid-cols-3 gap-4 mt-auto pt-8">
         <div><div className="label">Points</div><div className="stat mt-1 num">{fmtPts(a.points)}</div></div>
         <div><div className="label">Lead</div><div className="stat mt-1 num">{b ? `+${fmtPts(a.points - b.points)}` : '–'}</div></div>
@@ -100,7 +100,7 @@ function Story({ year, type, id, title, color }: { year: number; type: 'driver' 
         <span className="swatch h-6 w-1" style={{ background: color }} />
         <div>
           <div className="h2">{title}</div>
-          <div className="label">Season so far{arc.data ? ` · through round ${arc.data.through_round}` : ''}</div>
+          <div className="label">Season so far{arc.data ? `, through round ${arc.data.through_round}` : ''}</div>
         </div>
       </div>
       <div className="px-5 py-5">
@@ -180,7 +180,7 @@ export function SeasonPage() {
                       <div className="flex items-center gap-2.5">
                         <span className="swatch h-4" style={{ background: teamColor(d.team) }} />
                         <span className="font-medium">{d.name}</span>
-                        <span className="t3 hidden md:inline">{d.team}{d.teams.length > 1 && <span title={`Also drove for ${d.teams.filter((t) => t !== d.team).join(', ')} this season`}> · also {d.teams.filter((t) => t !== d.team).join(', ')}</span>}</span>
+                        <span className="t3 hidden md:inline">{d.team}{d.teams.length > 1 && <span title={`Also drove for ${d.teams.filter((t) => t !== d.team).join(', ')} this season`}>, also {d.teams.filter((t) => t !== d.team).join(', ')}</span>}</span>
                       </div>
                     </td>
                     <td className="r num font-semibold">{fmtPts(d.points)}</td>
@@ -194,9 +194,9 @@ export function SeasonPage() {
                       const what = !res ? 'did not take part' : p ? `P${p}${code === 'DNF' ? ' (retired, classified)' : ''}` : res.status ? STATUS_TEXT[res.status] : 'no result'
                       return (
                         <td key={r} className="!px-0.5">
-                          <div className="h-6 w-7 mx-auto rounded-[4px] flex items-center justify-center num" title={`${nameOf(r)}: ${what}${elsewhere ? ` · for ${res!.team}` : ''}`}
+                          <div className="h-6 w-7 mx-auto flex items-center justify-center num" title={`${nameOf(r)}: ${what}${elsewhere ? ` · for ${res!.team}` : ''}`}
                             style={{ ...cell(p), fontSize: code ? 8.5 : 11, letterSpacing: code ? '-0.02em' : undefined, boxShadow: elsewhere ? `inset 0 -2px 0 ${teamColor(res!.team)}` : undefined }}>
-                            {p ?? code ?? '·'}
+                            {p ?? code ?? ''}
                           </div>
                         </td>
                       )
@@ -221,7 +221,7 @@ export function SeasonPage() {
                   <tr key={t.team} className="clickable" aria-selected={on} onClick={() => setPick({ type: 'team', id: t.team })}>
                     <td className="num t2">{t.position}</td>
                     <td><div className="flex items-center gap-2.5"><span className="swatch h-4" style={{ background: teamColor(t.team) }} /><span className="font-medium">{t.team}</span></div></td>
-                    <td><div className="h-[8px] rounded-r-[3px]" style={{ width: `${(t.points / max) * 100}%`, background: teamColor(t.team), opacity: 0.8 }} /></td>
+                    <td><div className="h-[8px]" style={{ width: `${(t.points / max) * 100}%`, background: teamColor(t.team), opacity: 0.8 }} /></td>
                     <td className="r num font-semibold">{t.points % 1 ? t.points.toFixed(1) : t.points}</td>
                   </tr>
                 )

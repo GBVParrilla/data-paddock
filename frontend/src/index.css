@@ -1,99 +1,129 @@
 @import "tailwindcss";
 
-/* Data Paddock design tokens. One neutral dark theme; colour is reserved for data
-   (team identity, F1 sector colours, tyre compounds) plus a single red accent. */
+/* Data Paddock design tokens: the Circuit atlas (REVIEW_ROUND3 D6). Drafting paper and ink, light by
+   default, dark slate from the system setting. Team colour is the only bright colour; the timing
+   colours are for data only (fastest of all, top quarter, middle half; bottom quarter in graphite). */
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+}
 :root {
-  color-scheme: dark;
-  --bg: #0c0e11;
-  --panel: #13161a;
-  --panel-2: #191d22;
-  --hover: #1d2228;
-  --line: #22272e;
-  --line-2: #2e343c;
-  --text: #e7e9ec;
-  --text-2: #a0a7b1;
-  --text-3: #878f9a; /* 4.5:1 or better on every surface (WCAG AA) */
-  --accent: #e10600;
+  color-scheme: light;
+  --paper: #EEF2F3;
+  --ink: #17222C;
+  --graphite: #56636E;
+  --rule: #C5CFD5;
 
-  /* F1 timing convention */
-  --purple: #b553f2;
-  --green: #2fc56b;
-  --yellow: #e8c547;
-  --red: #e5484d;
-  --none: #353b43;
+  --bg: var(--paper);
+  --panel: var(--paper);
+  --panel-2: #E3E9EB;
+  --hover: #E3E9EB;
+  --line: var(--rule);
+  --line-2: #AEBAC1;
+  --text: var(--ink);
+  --text-2: var(--graphite);
+  --text-3: var(--graphite); /* 5.5:1 on paper (WCAG AA) */
+  --accent: var(--ink);
+  --grid-dot: #C5CFD5;
 
-  /* tyre compounds */
-  --soft: #e8333a;
-  --medium: #f3c934;
-  --hard: #e9e9e6;
-  --inter: #3aaa4c;
-  --wet: #2f78d6;
+  /* F1 timing convention, data only */
+  --purple: #8344E0;
+  --green: #1F9D55;
+  --yellow: #C99A06;
+  --red: var(--graphite);
+  --none: var(--rule);
 
-  --radius: 10px;
+  /* tyre compounds (data) */
+  --soft: #DA291C;
+  --medium: #E8B004;
+  --hard: #FFFFFF;
+  --inter: #2F9E44;
+  --wet: #2066C8;
+
+  --radius: 0px;
+  --radius-control: 3px;
   --maxw: 1240px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #1A232B;
+    --ink: #E4EAEE;
+    --graphite: #93A1AC;
+    --rule: #33414C;
+    --panel-2: #212C35;
+    --hover: #212C35;
+    --line-2: #44535F;
+    --grid-dot: #33414C;
+    --hard: #E4EAEE;
+  }
 }
 
 html, body, #root { min-height: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Archivo, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-stretch: 100%;
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv11", "ss01";
 }
-::selection { background: #e1060055; }
+::selection { background: color-mix(in srgb, var(--ink) 18%, transparent); }
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
-:focus-visible { outline: 2px solid #5b9dff; outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 @layer components {
 .wrap { max-width: var(--maxw); margin-inline: auto; padding-inline: 24px; }
 @media (max-width: 640px) { .wrap { padding-inline: 16px; } }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
-.lift { transition: border-color .15s, transform .15s; }
-.lift:hover { border-color: var(--line-2); transform: translateY(-2px); }
-@media (prefers-reduced-motion: reduce) { .lift:hover { transform: none; } }
+/* no cards: a section is whitespace and its heading; the sheet border is only around drawings */
+.panel { background: transparent; border: 0; border-radius: 0; }
+.lift { transition: background-color .15s; }
+.lift:hover { background: var(--hover); }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 14px 16px 0; min-height: 40px; }
 .panel-body { padding: 12px 16px 16px; }
 
-.display { font-family: "Inter Tight", Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.025em; }
-.h1 { font-family: "Inter Tight", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; }
+/* type: one family on its width axis. Race names and verdicts wide and heavy, body regular, timings narrow */
+.display { font-stretch: 125%; font-weight: 800; letter-spacing: -0.01em; }
+.h1 { font-stretch: 125%; font-size: 34px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.08; }
 @media (max-width: 640px) { .h1 { font-size: 27px; } }
-.kicker { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
-.stat { font-family: "Inter Tight", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
-.h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-.h-feature { font-family: "Inter Tight", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 44px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.02; }
-@media (max-width: 640px) { .h-feature { font-size: 32px; } }
+.kicker { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.stat { font-stretch: 75%; font-size: 24px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.h2 { font-size: 16px; font-weight: 700; }
+.h-feature { font-stretch: 125%; font-size: 44px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.02; }
+@media (max-width: 640px) { .h-feature { font-size: 30px; } }
 .label { font-size: 12px; font-weight: 500; color: var(--text-3); }
 .t2 { color: var(--text-2); }
 .t3 { color: var(--text-3); }
-.num { font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; font-stretch: 75%; }
 .prose { font-size: 15px; line-height: 1.65; color: var(--text); }
 .prose-2 { font-size: 14px; line-height: 1.65; color: var(--text-2); }
 
 /* segmented control */
-.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
-.seg button { padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.seg { display: inline-flex; background: transparent; border: 1px solid var(--line-2); border-radius: var(--radius-control); padding: 2px; gap: 2px; }
+.seg button { padding: 5px 12px; border-radius: 2px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
 .seg button:hover:not(:disabled) { color: var(--text); }
-.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .seg button[aria-checked="true"] { background: var(--line-2); color: var(--text); }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .seg button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
 .seg button:disabled { color: var(--text-3); opacity: 0.5; }
 .seg.sm button { padding: 3px 9px; font-size: 12px; }
 
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line-2); font-size: 13px; font-weight: 500; color: var(--text); background: var(--panel); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-control); border: 1px solid var(--ink); font-size: 13px; font-weight: 600; color: var(--text); background: transparent; }
 .btn:hover { background: var(--hover); }
 .btn-ghost { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
 .btn-ghost:hover { color: var(--text); }
 
-.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--text-2); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-2); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--text-2); padding: 1px 6px; border-radius: var(--radius-control); border: 1px solid var(--line-2); }
 .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: none; }
-.swatch { width: 3px; align-self: stretch; border-radius: 2px; flex: none; }
+.swatch { width: 3px; align-self: stretch; border-radius: 0; flex: none; }
 
 /* tables */
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 .tbl th { font-size: 12px; font-weight: 500; color: var(--text-3); text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .tbl td { padding: 0 8px; height: 34px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .tbl tr:last-child td { border-bottom: 0; }
@@ -108,15 +138,39 @@ button:disabled { cursor: default; }
 .tabs button:hover { color: var(--text); }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
 
-.skeleton { background: linear-gradient(90deg, var(--panel-2), var(--hover), var(--panel-2)); background-size: 200% 100%; animation: sk 1.4s ease-in-out infinite; border-radius: 6px; }
-@keyframes sk { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
-@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+/* loading: a still placeholder (the race sheet's track drawing is the one moving thing on the site) */
+.skeleton { background: var(--panel-2); border-radius: 0; }
 
 .term-wrap { position: relative; display: inline; }
 .term { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: help; text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
-.term:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.term:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .term-tip { position: absolute; z-index: 40; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: max-content; max-width: min(280px, 80vw);
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-weight: 400;
-  line-height: 1.45; text-align: left; letter-spacing: 0; text-transform: none; white-space: normal; box-shadow: 0 8px 24px #0009; }
-.tip { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 8px 24px #0008; }
+  background: var(--paper); color: var(--text); border: 1px solid var(--ink); border-radius: 0; padding: 8px 10px; font-size: 12.5px; font-weight: 400;
+  line-height: 1.45; text-align: left; letter-spacing: 0; text-transform: none; white-space: normal; }
+.tip { background: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 8px 10px; font-size: 12px; }
+
+/* the drawing sheet: a hairline border with registration marks at its corners, on a faint dot grid */
+.sheet { position: relative; border: 1px solid var(--line-2); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px); background-size: 16px 16px; }
+.sheet::before, .sheet::after { content: ""; position: absolute; width: 14px; height: 14px; border-color: var(--ink); border-style: solid; }
+.sheet::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.sheet::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.sheet > .reg-tr, .sheet > .reg-bl { position: absolute; width: 14px; height: 14px; border-color: var(--ink); border-style: solid; pointer-events: none; }
+.sheet > .reg-tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+.sheet > .reg-bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+.title-block { border: 1px solid var(--ink); background: var(--paper); font-size: 12px; }
+.title-block > div { padding: 4px 8px; border-top: 1px solid var(--line-2); display: grid; grid-template-columns: auto 1fr; gap: 0 12px; }
+.title-block > div:first-child { border-top: 0; }
+.title-block dt { color: var(--text-2); }
+.title-block dd { font-stretch: 75%; font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+}
+
+/* the one motion moment: on a race page's first view the track inks in (1.2s), then the winner's
+   colour traces one lap and fades. Nothing else animates; reduced motion gets the finished drawing. */
+@keyframes ink-in { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes trace-lap { 0% { stroke-dashoffset: 0.05; opacity: 1; } 92% { opacity: 1; } 100% { stroke-dashoffset: -0.95; opacity: 0; } }
+.draw-in { stroke-dasharray: 1; animation: ink-in 1.2s ease-out both; }
+.trace-lap { stroke-dasharray: 0.05 1; stroke-dashoffset: 0.05; opacity: 0; animation: trace-lap 2.4s linear 1.2s both; }
+@media (prefers-reduced-motion: reduce) {
+  .draw-in { animation: none; stroke-dasharray: none; }
+  .trace-lap { display: none; }
 }

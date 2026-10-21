@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Event } from '../api/client'
 import { Freshness } from '../components/Freshness'
-import { RaceCard } from '../components/RaceCard'
+import { PodiumChips } from '../components/RaceCard'
 import { TrackMap } from '../components/TrackMap'
 import { useTitle } from '../hooks/useTitle'
 import { useFetch } from '../hooks/useFetch'
@@ -11,76 +11,72 @@ import { teamColor } from '../lib/teamColors'
 import { useStore } from '../state/store'
 
 
-/** The most recent race, given the room it deserves: map in the winner's colours, podium, midfield story. */
-function LatestRace({ event }: { event: Event }) {
-  const outline = useFetch((s) => api.trackOutline(event.id, s), [event.id])
-  const sessions = useFetch((s) => api.sessions(event.id, s), [event.id])
+/** A round drawn as a plate from the atlas: the circuit large in the winner's team colour, the race name, the podium.
+ * The latest round also carries its midfield story. */
+function CircuitPlate({ event, latest }: { event: Event; latest?: boolean }) {
+  const sessions = useFetch((s) => api.sessions(event.id, s), [event.id], !!latest)
   const race = sessions.data?.find((s) => s.session_type === 'R')
-  const spot = useFetch((s) => api.midfieldSpotlight(race!.id, false, s), [race?.id], !!race)
-  const color = teamColor(event.winner?.team)
-  const podium = event.podium ?? []
+  const spot = useFetch((s) => api.midfieldSpotlight(race!.id, false, s), [race?.id], !!latest && !!race)
+  const color = event.winner ? teamColor(event.winner.team) : 'var(--text-3)'
   return (
-    <section className="panel overflow-hidden lg:col-span-8 grid md:grid-cols-[1.05fr_1fr]" aria-label="Latest race">
-      <div className="p-6 md:p-8 flex flex-col">
-        <div className="kicker">Latest race · Round {event.round}</div>
-        <h2 className="h-feature mt-3">{event.name}</h2>
-        <div className="t2 mt-2 text-[13px]">{event.circuit_name} · {shortDate(event.event_date)}</div>
-
-        <ol className="mt-7 space-y-2.5">
-          {podium.map((d, i) => (
-            <li key={d.id} className="flex items-center gap-3">
-              <span className="w-5 t3 num text-[13px]">{i + 1}</span>
-              <span className="swatch" style={{ background: teamColor(d.team), height: i === 0 ? 26 : 18, width: 4 }} />
-              <span className={i === 0 ? 'display text-[20px] font-bold' : 'text-[15px] font-medium'}>{d.name}</span>
-              <span className="t3 text-[12.5px] ml-auto">{d.team}</span>
-            </li>
-          ))}
-        </ol>
-
-        {spot.data && (
-          <div className="mt-7 pt-5 border-t" style={{ borderColor: 'var(--line)' }}>
-            <div className="kicker flex items-center gap-2"><span className="dot" style={{ background: teamColor(spot.data.team) }} />Midfield story</div>
-            <MidfieldLine driver={spot.data.driver} reason={spot.data.reason} />
-          </div>
-        )}
-
-        <div className="mt-auto pt-7">
-          <Link to={`/race/${event.id}${race ? `?session=${race.id}` : ''}`} className="btn">Open the race <span aria-hidden="true">→</span></Link>
+    <article className="sheet p-4 sm:p-5 flex flex-col min-w-0 w-full" aria-label={latest ? 'Latest race' : `${event.name}, round ${event.round}`}>
+      <span className="reg-tr" aria-hidden="true" /><span className="reg-bl" aria-hidden="true" />
+      <Link to={`/race/${event.id}${race ? `?session=${race.id}` : ''}`} className="flex flex-col flex-1 group">
+        <div className="flex items-baseline justify-between gap-3 label">
+          <span className="num">Round {event.round}{latest ? ', the latest' : ''}</span>
+          <span className="num">{shortDate(event.event_date)}</span>
         </div>
-      </div>
-      <div className="relative min-h-[280px] flex items-center justify-center p-8 border-t md:border-t-0 md:border-l" style={{ borderColor: 'var(--line)', background: 'var(--panel-2)' }}>
-        {outline.data && <TrackMap outline={outline.data} stroke={11} plainColor={color} className="w-full max-h-[380px]" />}
-      </div>
-    </section>
+        <div className={`${latest ? 'h-52 sm:h-64' : 'h-32 sm:h-36'} my-3 flex items-center justify-center`}>
+          {event.outline_preview ? <TrackMap outline={event.outline_preview} stroke={latest ? 12 : 14} plainColor={color} className="w-full h-full" />
+            : <span className="label">The map appears once the weekend runs</span>}
+        </div>
+        <h2 className={`display ${latest ? 'text-[26px]' : 'text-[17px]'} leading-tight group-hover:underline underline-offset-4`}>{event.name}</h2>
+        {event.podium?.length ? <div className="mt-2"><PodiumChips podium={event.podium} /></div> : null}
+      </Link>
+      {latest && (spot.loading || sessions.loading || spot.data) && (
+        <div className="mt-4 pt-3 border-t min-h-[4.6rem]" style={{ borderColor: 'var(--line)' }}>
+          {spot.data && <>
+            <div className="kicker flex items-center gap-2"><span className="swatch h-3.5" style={{ background: teamColor(spot.data.team) }} />Midfield story</div>
+            <MidfieldLine driver={spot.data.driver} reason={spot.data.reason} />
+          </>}
+        </div>
+      )}
+    </article>
   )
 }
 
+/** The championship as a gap ladder: each driver's distance to the leader, drawn to scale. */
 function Championship({ year }: { year: number }) {
   const st = useFetch((s) => api.standings(year, s), [year])
-  const rows = st.data?.drivers.slice(0, 8) ?? []
-  const max = rows[0]?.points || 1
+  const rows = st.data?.drivers.slice(0, 10) ?? []
+  const lead = rows[0]?.points ?? 0
+  const maxGap = Math.max(1, ...rows.map((d) => lead - d.points))
+  const pts = (p: number) => (p % 1 ? p.toFixed(1) : String(p))
   return (
-    <section className="panel lg:col-span-4 p-6 flex flex-col" aria-label="Championship">
-      <div className="flex items-baseline justify-between">
-        <div className="kicker">Drivers' championship</div>
-        {st.data && <span className="label">After round {st.data.rounds.length}</span>}
+    <section className="lg:col-span-4 flex flex-col" aria-label="Championship">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="h2">Drivers' championship</h2>
+        {st.data && <span className="label">after round {st.data.rounds.length}</span>}
       </div>
-      <ol className="mt-5 space-y-3.5 flex-1">
-        {rows.map((d) => (
-          <li key={d.driver_id}>
-            <div className="flex items-baseline gap-2 text-[13px]">
-              <span className="w-4 t3 num">{d.position}</span>
-              <span className="font-medium">{d.name}</span>
-              <span className="ml-auto num font-semibold">{d.points % 1 ? d.points.toFixed(1) : d.points}</span>
-            </div>
-            <div className="ml-6 mt-1.5 h-[5px] rounded-full" style={{ background: 'var(--panel-2)' }}>
-              <div className="h-full rounded-full" style={{ width: `${(d.points / max) * 100}%`, background: teamColor(d.team) }} />
-            </div>
-          </li>
-        ))}
-        {st.loading && Array.from({ length: 8 }).map((_, i) => <li key={i} className="skeleton h-7" />)}
+      <ol className="mt-4 flex-1" aria-label="Gap to the leader">
+        {rows.map((d, i) => {
+          const gap = lead - d.points
+          return (
+            <li key={d.driver_id} className="grid grid-cols-[1.5rem_minmax(0,7.5rem)_1fr_3.5rem] items-center gap-2 h-8 border-t first:border-t-0" style={{ borderColor: 'var(--line)' }}>
+              <span className="num t3 text-[13px]">{d.position}</span>
+              <span className="text-[13px] font-medium truncate flex items-center gap-2"><span className="swatch h-3.5" style={{ background: teamColor(d.team) }} />{d.name.split(' ').slice(-1)[0]}</span>
+              <span className="relative h-full" aria-hidden="true">
+                {/* the ladder: a rule at the leader, each driver's bar running back by their gap */}
+                <span className="absolute left-0 top-1 bottom-1 w-px" style={{ background: 'var(--ink)' }} />
+                {i > 0 && <span className="absolute left-0 top-[11px] h-[8px]" style={{ width: `${(gap / maxGap) * 100}%`, background: teamColor(d.team) }} />}
+              </span>
+              <span className="num text-[13px] text-right font-semibold">{i === 0 ? `${pts(d.points)} pts` : `-${pts(gap)}`}</span>
+            </li>
+          )
+        })}
+        {st.loading && Array.from({ length: 10 }).map((_, i) => <li key={i} className="skeleton h-7 mb-1" />)}
       </ol>
-      <Link to={`/season/${year}`} className="btn-ghost mt-5">Full standings <span aria-hidden="true">→</span></Link>
+      <Link to={`/season/${year}`} className="btn-ghost mt-4 underline underline-offset-4">Full standings</Link>
     </section>
   )
 }
@@ -95,9 +91,8 @@ export function Home() {
   useTitle(year ? `${year} season` : null)
   const all = events.data ?? []
   const started = all.filter((e) => e.completed || e.podium?.length).reverse()
-  const latest = all.filter((e) => e.completed).at(-1)
-  // the latest race has the feature panel; the four before it get cards, and /races has the full grid (decision D3)
-  const earlier = started.filter((e) => e.id !== latest?.id).slice(0, 4)
+  // the latest four rounds drawn large, then a link to /races (decision D3)
+  const latest4 = started.slice(0, 4)
   const upcoming = all.filter((e) => !e.completed)
   return (
     <div className="wrap pt-10">
@@ -108,31 +103,29 @@ export function Home() {
       </div>
       {events.error && <p className="t2">{events.error.message}</p>}
 
-      <div className="grid lg:grid-cols-12 gap-4">
-        {latest ? <LatestRace event={latest} /> : events.loading && <div className="panel skeleton lg:col-span-8 h-[460px]" />}
+      <div className="grid lg:grid-cols-12 gap-x-10 gap-y-10">
+        <section className="lg:col-span-8 min-w-0" aria-label="Results">
+          <div className="grid sm:grid-cols-3 gap-5">
+            {latest4.map((e, i) => <div key={e.id} className={i === 0 ? 'sm:col-span-3' : 'flex'}><CircuitPlate event={e} latest={i === 0} /></div>)}
+            {/* placeholders the plates' own size, so nothing below them moves when they arrive */}
+            {!events.data && !events.error && <>
+              <div className="skeleton sm:col-span-3 h-[470px] sm:h-[520px]" />
+              {[0, 1, 2].map((i) => <div key={i} className="skeleton h-[270px]" />)}
+            </>}
+          </div>
+          {started.length > 4 && <Link to="/races" className="btn-ghost mt-5 underline underline-offset-4">All {started.length} races so far</Link>}
+        </section>
         {year !== null && <Championship year={year} />}
       </div>
 
-      {earlier.length > 0 && (
-        <section className="mt-12" aria-label="Results">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="kicker">Earlier rounds</h2>
-            <Link to="/races" className="btn-ghost text-[13px]">All {started.length} races <span aria-hidden="true">→</span></Link>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {earlier.map((e) => <RaceCard key={e.id} event={e} />)}
-          </div>
-        </section>
-      )}
-
       {upcoming.length > 0 && (
         <section className="mt-12" aria-label="Upcoming">
-          <h2 className="kicker mb-4">Still to come</h2>
-          <div className="panel divide-y" style={{ borderColor: 'var(--line)' }}>
+          <h2 className="h2 mb-3">Still to come</h2>
+          <div className="divide-y border-t" style={{ borderColor: 'var(--line)' }}>
             {upcoming.map((e) => (
               <Link key={e.id} to={`/race/${e.id}`} className="grid grid-cols-[3rem_1fr_auto] sm:grid-cols-[3rem_14rem_1fr_auto] items-center gap-4 px-5 h-12 hover:bg-[var(--hover)] text-[13px]" style={{ borderColor: 'var(--line)' }}>
                 <span className="t3 num">R{String(e.round).padStart(2, '0')}</span>
-                <span className="font-medium">{e.name}{e.has_sprint ? <span className="t3 font-normal"> · Sprint</span> : ''}</span>
+                <span className="font-medium">{e.name}{e.has_sprint ? <span className="t3 font-normal">, sprint</span> : ''}</span>
                 <span className="t3 truncate hidden sm:block">{e.circuit_name}</span>
                 <span className="t2 num">{shortDate(e.event_date)}</span>
               </Link>

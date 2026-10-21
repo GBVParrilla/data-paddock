@@ -45,25 +45,36 @@ function outlineSvg(points, color) {
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
   const pad = 40
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('') + 'Z'
+  // the circuit atlas drawing: the track in ink, the team's colour along it, the start/finish line
   return `<svg viewBox="${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%">
-    <path d="${d}" fill="none" stroke="${color}" stroke-width="16" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+    <path d="${d}" fill="none" stroke="#17222C" stroke-width="22" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/></svg>`
 }
 
+// Archivo, embedded so the images render the same offline (public/fonts, OFL)
+const FONT = (() => { try { return readFileSync(new URL('../public/fonts/archivo-var.woff2', import.meta.url)).toString('base64') } catch { return '' } })()
+
+/** An Open Graph image as a sheet from the circuit atlas: paper, a dot grid, registration marks, the race name,
+ * the verdict headline and the track drawing (REVIEW_ROUND3 D6). */
 function card({ kicker, title, line, sub, color, points }) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-  body{margin:0;width:1200px;height:630px;background:#0c0e11;color:#e7e9ec;font-family:Inter,"Helvetica Neue",Arial,sans-serif;display:flex;overflow:hidden}
-  .l{width:640px;padding:64px 0 56px 72px;display:flex;flex-direction:column}
-  .k{font-size:22px;letter-spacing:.08em;text-transform:uppercase;color:#8b929c;font-weight:600}
-  .t{font-size:66px;font-weight:800;line-height:1.02;letter-spacing:-.03em;margin-top:20px}
-  .bar{width:72px;height:6px;border-radius:3px;background:${color};margin-top:30px}
-  .line{font-size:32px;font-weight:600;margin-top:24px;line-height:1.25}
-  .sub{font-size:24px;color:#a8aeb6;margin-top:14px;line-height:1.35}
+  ${FONT ? `@font-face{font-family:Archivo;src:url(data:font/woff2;base64,${FONT}) format("woff2");font-weight:100 900;font-stretch:62% 125%}` : ''}
+  body{margin:0;width:1200px;height:630px;background:#EEF2F3;color:#17222C;font-family:Archivo,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+  .s{position:absolute;inset:28px;border:1.5px solid #AEBAC1;background-image:radial-gradient(#C5CFD5 1.4px,transparent 1.6px);background-size:22px 22px;display:flex}
+  .m{position:absolute;width:26px;height:26px;border:0 solid #17222C}
+  .tl{top:-2px;left:-2px;border-width:3px 0 0 3px}.tr{top:-2px;right:-2px;border-width:3px 3px 0 0}.bl{bottom:-2px;left:-2px;border-width:0 0 3px 3px}.br{bottom:-2px;right:-2px;border-width:0 3px 3px 0}
+  .l{width:600px;padding:44px 0 40px 48px;display:flex;flex-direction:column}
+  .k{font-size:24px;color:#56636E;font-weight:600}
+  .t{font-size:64px;font-weight:800;font-stretch:125%;line-height:1.02;margin-top:16px}
+  .line{font-size:34px;font-weight:700;margin-top:26px;line-height:1.2;border-left:8px solid ${color};padding-left:18px}
+  .sub{font-size:24px;color:#56636E;margin-top:16px;line-height:1.35}
   .b{margin-top:auto;font-size:24px;font-weight:700;display:flex;align-items:center;gap:12px}
-  .b i{display:inline-block;width:12px;height:30px;background:#e7e9ec;border-radius:2px}.b em{display:inline-block;width:14px;height:14px;background:#e10600;border-radius:2px;align-self:flex-start}
-  .r{flex:1;padding:56px 64px 56px 24px;display:flex;align-items:center}
-  </style></head><body><div class="l"><div class="k">${esc(kicker)}</div><div class="t">${esc(title)}</div><div class="bar"></div>
-  <div class="line">${esc(line)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
-  <div class="b"><i></i><em></em>Data Paddock</div></div><div class="r">${outlineSvg(points, color)}</div></body></html>`
+  .b i{display:inline-block;width:10px;height:28px;background:#17222C}
+  .r{flex:1;padding:44px 48px 44px 16px;display:flex;align-items:center}
+  </style></head><body><div class="s"><span class="m tl"></span><span class="m tr"></span><span class="m bl"></span><span class="m br"></span>
+  <div class="l"><div class="k">${esc(kicker)}</div><div class="t">${esc(title)}</div>
+  ${line ? `<div class="line">${esc(line)}</div>` : ''}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
+  <div class="b"><i></i>Data Paddock</div></div><div class="r">${outlineSvg(points, color)}</div></div></body></html>`
 }
 
 const seasons = read('seasons') ?? []
@@ -77,10 +88,12 @@ for (const season of seasons) {
     const sessions = read(`events/${e.id}/sessions`) ?? []
     const race = sessions.find((s) => s.session_type === 'R' && s.ingestion.transforms)
     const w = e.winner
-    const podium = (e.podium ?? []).map((d) => d.code).join(' · ')
-    const color = TEAM[w?.team] ?? '#e7e9ec'
+    const podium = (e.podium ?? []).map((d) => d.code).join(', ')
+    const color = TEAM[w?.team] ?? '#17222C'
     const img = `og/race-${e.id}.png`
-    images.push({ file: img, html: card({ kicker: `Round ${e.round} · ${year}`, title: e.name, line: w ? `${w.name} won` : '', sub: podium ? `Podium: ${podium}` : '', color, points: e.outline_preview?.points }) })
+    // the verdict: the winner's race headline (what decided it), else who won
+    const verdict = race && w ? read(`sessions/${race.id}/drivers/${w.id}/narrative`)?.headline : null
+    images.push({ file: img, html: card({ kicker: `Round ${e.round}, ${year}`, title: e.name, line: verdict ?? (w ? `${w.name} won` : ''), sub: podium ? `Podium: ${podium}` : '', color, points: e.outline_preview?.points }) })
     pages.push({ path: `race/${e.id}`, title: `${e.name} ${year} · Data Paddock`, description: `${w ? `${w.name} won the ${e.name}. ` : ''}Every driver's race, told from the timing data: key moments, strategy and the story beyond the podium.`, image: img })
     if (!race) continue
     const headline = read(`sessions/${race.id}/headline`)
@@ -88,7 +101,7 @@ for (const season of seasons) {
       const story = read(`sessions/${race.id}/drivers/${id}/narrative`)
       if (!story || !d.driver_ref) continue
       const dImg = `og/race-${e.id}-${d.driver_ref}.png`
-      images.push({ file: dImg, html: card({ kicker: `${e.name} · ${year}`, title: d.name, line: story.headline ?? '', sub: d.team, color: TEAM[d.team] ?? '#e7e9ec', points: e.outline_preview?.points }) })
+      images.push({ file: dImg, html: card({ kicker: `${e.name}, ${year}`, title: d.name, line: story.headline ?? '', sub: d.team, color: TEAM[d.team] ?? '#17222C', points: e.outline_preview?.points }) })
       pages.push({ path: `race/${e.id}/driver/${d.driver_ref}`, title: `${d.name}: ${story.headline ?? e.name} · Data Paddock`, description: story.summary ?? `${d.name}'s ${e.name}, told from the timing data.`, image: dImg })
     }
   }
@@ -107,6 +120,7 @@ if (process.env.OG_IMAGES !== '0') {
   mkdirSync(join(DIST, 'og'), { recursive: true })
   for (const img of images) {
     await page.setContent(img.html)
+    await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: join(DIST, img.file), type: 'png' })
   }
   await browser.close()

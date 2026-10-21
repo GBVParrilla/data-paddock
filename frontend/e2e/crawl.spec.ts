@@ -6,7 +6,7 @@ const FORBIDDEN: RegExp[] = [/\bNone\b/, /\bnull\b/, /\bundefined\b/, /\bNaN\b/,
 const PILOT_ROUNDS = [1, 12, 17]
 // Helper text the declutter removed (REVIEW_ROUND2 A7). Exactly one hint may remain: "Pick up to two drivers".
 const OLD_HINTS = ['What decided the race, in lap order', 'Pick a driver to follow their weekend', 'Hover a line', 'Tap a line', 'Circles mark pit stops', 'What stood out']
-const FRESHNESS = /Data through round \d+ · updated \d{1,2} [A-Z][a-z]{2}/
+const FRESHNESS = /Data through round \d+, updated \d{1,2} [A-Z][a-z]{2}/
 
 type Watch = { problems: string[] }
 
@@ -111,6 +111,9 @@ async function openRound(page: Page, round: number) {
 async function openMoreDetail(page: Page) {
   const toggle = page.getByRole('button', { name: /more detail/i })
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  // the deep dive renders once it scrolls into view (it is below the fold, and heavy)
+  await toggle.scrollIntoViewIfNeeded()
+  await page.getByRole('region', { name: 'Deep dive' }).waitFor()
 }
 
 async function sessionTabs(page: Page) {
@@ -152,6 +155,8 @@ test('every race and every session tab, via in-app links', async ({ page }, info
       if (name === 'Race' && info.project.name === 'mobile') {
         // points are the result fans look for: visible without scrolling sideways (REVIEW_ROUND2 #45)
         const pts = page.locator('section[aria-label="Classification"] th', { hasText: 'Pts' })
+        // the race sheet comes first, so scroll the page (only vertically) to the table before looking
+        await page.locator('section[aria-label="Classification"]').evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 8))
         await expect.soft(pts, `${label}: Pts column`).toBeInViewport()
       }
     }
@@ -269,6 +274,7 @@ test('Expert mode shows the debrief and opens more detail, and survives a shared
   await expect(story.getByRole('list', { name: 'Findings' })).toBeVisible()
   await expect(story.locator('[data-essential]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /more detail/i })).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('button', { name: /more detail/i }).scrollIntoViewIfNeeded()
   await expect(page.getByRole('region', { name: 'Deep dive' })).toBeVisible()
   await expect(page.getByRole('radio', { name: 'Expert' })).toBeChecked()
   await check(page, w, 'expert driver page')
@@ -280,18 +286,20 @@ test('Expert mode shows the debrief and opens more detail, and survives a shared
 })
 
 test('corner colours are ranks, and a withheld breakdown colours no corner (REVIEW_ROUND3 #48, #49)', async ({ page }) => {
-  // Baku FP1 (session 71): Norris's best lap had a frozen location feed, which drew +98.9s at T1 and
-  // purple everywhere else; Russell's breakdown is shown
+  // Baku FP1 (session 71): Norris's best lap had a frozen location feed, which drew +98.9s at T1 and purple
+  // everywhere else. Every shown breakdown's map colours must equal its exported ranks; a withheld one (when the
+  // snapshot has one) colours no corner
   const index = await (await page.request.get('data/sessions/71/turn-deltas.json')).json() as { drivers: number[]; withheld: number[] }
-  test.skip(!index.withheld.length || !index.drivers.length, 'this snapshot has no withheld Baku FP1 breakdown')
+  test.skip(!index.drivers.length, 'this snapshot has no Baku FP1 breakdowns')
   const w = watch(page)
-  const [withheld, shown] = [index.withheld.includes(19) ? 19 : index.withheld[0], index.drivers[0]]
-  await page.goto(`race/15?session=71&drivers=${withheld}`)
   const circuit = page.getByRole('region', { name: 'Circuit' })
-  await expect(circuit.getByText("Corner times aren't reliable for this lap.")).toBeVisible()
-  await expect(circuit.locator('circle[data-tier]')).toHaveCount(0)
-  await check(page, w, 'withheld corners')
-
+  if (index.withheld.length) {
+    await page.goto(`race/15?session=71&drivers=${index.withheld.includes(19) ? 19 : index.withheld[0]}`)
+    await expect(circuit.getByText("Corner times aren't reliable for this lap.")).toBeVisible()
+    await expect(circuit.locator('circle[data-tier]')).toHaveCount(0)
+    await check(page, w, 'withheld corners')
+  }
+  const shown = index.drivers.includes(19) ? 19 : index.drivers[0]
   await page.goto(`race/15?session=71&drivers=${shown}`)
   const td = await (await page.request.get(`data/sessions/71/drivers/${shown}/turn-deltas.json`)).json() as { turns: { number: number; rank: number; of: number }[] }
   await expect(circuit.locator('circle[data-tier]').first()).toBeVisible()

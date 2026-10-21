@@ -98,10 +98,10 @@ export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cas
           <div className="h-28">
             <ResponsiveContainer>
               <LineChart data={gap.map((g) => ({ lap: g.lap, gap: -g.gap_ms }))} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid stroke="var(--line)" vertical={false} />
-                <XAxis dataKey="lap" tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} />
+                <CartesianGrid stroke="var(--rule)" strokeDasharray="1 3" vertical={false} />
+                <XAxis dataKey="lap" tick={{ fill: 'var(--text-2)', fontSize: 11 }} stroke="var(--ink)" tickLine={false} />
                 <YAxis domain={[-lim, lim]} ticks={[-lim, 0, lim]} width={40} tick={{ fill: 'var(--text-3)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v > 0 ? '+' : ''}${(v / 1000).toFixed(0)}s`} />
-                <ReferenceLine y={0} stroke="var(--line-2)" />
+                <ReferenceLine y={0} stroke="var(--ink)" />
                 <Tooltip isAnimationActive={false} cursor={{ stroke: 'var(--line-2)' }} content={({ active, payload, label }) => active && payload?.length ? (
                   <div className="tip num"><div className="label">Lap {label}</div>{(() => { const v = Number(payload[0].value); return `${v >= 0 ? a.code : b.code} ahead by ${Math.abs(v / 1000).toFixed(1)}s` })()}</div>
                 ) : null} />

@@ -60,7 +60,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
           <span className="swatch h-8 w-1" style={{ background: color }} />
           <div>
             <div className="h2">{driver.name}</div>
-            <div className="label">{driver.team}{driver.number ? ` · #${driver.number}` : ''}{driver.stand_in && <> · <Term k="standin">stand-in</Term> (usually {driver.usual_team})</>}</div>
+            <div className="label">{driver.team}{driver.number ? `, car ${driver.number}` : ''}{driver.stand_in && <>, <Term k="standin">stand-in</Term> (usually {driver.usual_team})</>}</div>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1" role="tablist" aria-label="Sessions">
@@ -69,7 +69,7 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
             const res = results.data?.[i] ? resultIn(results.data[i], driver.id) : ''
             return (
               <button key={s.id} role="tab" aria-selected={on} onClick={() => onSession(s.id)}
-                className={`px-3 py-1.5 rounded-lg text-left border ${on ? 'bg-[var(--panel-2)] border-[var(--line-2)]' : 'border-transparent hover:bg-[var(--hover)]'}`}>
+                className={`px-3 py-1.5 rounded-[3px] text-left border ${on ? 'bg-[var(--panel-2)] border-[var(--line-2)]' : 'border-transparent hover:bg-[var(--hover)]'}`}>
                 <div className="text-[11px] t3 font-medium">{SESSION_TINY[s.session_type as SessionType]}</div>
                 <div className="text-[13px] font-semibold num min-w-[2.2rem]">{res || ' '}</div>
               </button>
