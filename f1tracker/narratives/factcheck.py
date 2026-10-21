@@ -65,6 +65,11 @@ POINTS_DECIMAL = re.compile(r"\b(\d+)\.0 points?\b")
 UNDONE = re.compile(r"\b(undone|undid|ruined|wrecked|derailed|spoiled|thrown away|threw away|cost him the race)\b", re.I)
 # Essential leaves the data to the debrief: "14th in sector 2", "S3 rank", "18.6s in the pit lane"
 RE_ESSENTIAL_DATA = re.compile(r"\b\d+(?:st|nd|rd|th)(?: of \d+)? in (?:sector|s)\s?[123]\b|\b(?:sector|s)\s?[123] (?:rank|ranked)\b|\d+\.\d+s (?:in|through) the pit ?lane\b", re.I)
+# sentences about what didn't happen to him: filler in a short story (prompt v5 pilot: "No incidents or safety
+# periods were recorded for him", "The stop came away from any Virtual Safety Car period")
+NON_EVENT = re.compile(r"\bno (incidents?|safety (car )?periods?|penalt(y|ies)|investigations?)\b[^.]*\b(recorded|reported|noted|involving)\b|"
+                       r"\baway from any\b|\bwas not (affected|involved)\b|\bnothing (else )?(happened|of note)\b|\brain was reported\b", re.I)
+PASS_WORD = re.compile(r"\b(pass|passed|passes|passing|overtak\w*)\b", re.I)
 RECOVERY = re.compile(r"\b(recover\w*|won back|despite|still|yet|but|anyway|regardless)\b", re.I)
 
 
@@ -369,10 +374,14 @@ def check_hedging(section: str, text: str, sheet: dict) -> list[Violation]:
 
 
 def check_story(data: dict, sheet: dict, *, roster: dict[str, str], entrants: set[str], extra_numbers: set[float] | None = None,
-                limits: dict[str, int] | None = None) -> list[Violation]:
+                limits: dict[str, int] | None = None, style: bool = True) -> list[Violation]:
     """All checks over a structured story {headline, essential, key_numbers, glossary_terms} (a story from
     before prompt v4 also has expert and analysis, checked too). Arcs and head-to-heads pass their own
-    `limits` (their sections and word counts)."""
+    `limits` (their sections and word counts).
+
+    `style`: also hold the story to the style rules (no filler about what didn't happen). They apply when a
+    story is written; a published story is re-checked for truth only, so a true but padded story isn't
+    swapped for a template."""
     out: list[Violation] = []
     allowed = _allowed_numbers(sheet, extra_numbers or set())
     sheet_text = json.dumps(sheet, default=str)
@@ -412,9 +421,15 @@ def check_story(data: dict, sheet: dict, *, roster: dict[str, str], entrants: se
         out.append(Violation("essential", f"use plain words in essential, not data notation like \"{RAW.search(essential).group()}\" (that belongs in expert)"))
     if RE_ESSENTIAL_DATA.search(essential):
         out.append(Violation("essential", f"no sector ranks or pit-lane times in essential (\"{RE_ESSENTIAL_DATA.search(essential).group()}\"): they are in the Expert debrief"))
+    if style and NON_EVENT.search(essential):
+        out.append(Violation("essential", f"leave out what didn't happen (\"{NON_EVENT.search(essential).group()}\"): every sentence should say something that did"))
     if data.get("headline") and (sheet.get("result") or {}).get("status") != "did not start":
         out += check_headline(data["headline"], sheet)
         out += check_headline_reading(data["headline"], sheet)
+        # R1 Russell: "A lap-27 pass on Hamilton" for a lead taken through the pit stops (prompt v5 pilot)
+        win = next((c for c in sheet.get("verdict_candidates") or [] if c.get("kind") == "win"), None)
+        if win and "through the pit stops" in win.get("verdict", "") and PASS_WORD.search(data["headline"]):
+            out.append(Violation("headline", "he took the lead through the pit stops, not by passing on track: don't call it a pass"))
     if "analysis" in sections:
         out += check_hedging("analysis", data.get("analysis") or "", sheet)
         if sheet.get("verdicts") and data.get("analysis") and not _uses_a_verdict(data["analysis"], sheet["verdicts"]):

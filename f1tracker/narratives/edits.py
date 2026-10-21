@@ -249,7 +249,7 @@ def present_driver_session(db: OrmSession, n: DriverSessionNarrative, *, verify:
         data = {"headline": n.headline, "essential": n.summary}
         if n.narrative_text:  # a story from before prompt v4: its long text and analysis are checked too
             data.update({"expert": n.narrative_text, "analysis": n.strategy_analysis_text})
-        problems = [str(v) for v in check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"])]
+        problems = [str(v) for v in check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"], style=False)]
     if problems or n.is_template:
         t = template_story(sheet, taken=headlines.clash if headlines is not None else None, driver_id=n.driver_id)  # always rebuilt from today's facts
         out.update({"headline": t["headline"], "summary": t["essential"], "narrative_text": t["expert"], "strategy_analysis_text": t["analysis"],

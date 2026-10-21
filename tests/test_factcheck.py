@@ -228,3 +228,17 @@ def test_slips_from_the_prompt_v4_pilot_are_caught():
     # R1 R Hadjar and R17 S Pérez: missing-data talk in new words
     for text in ("Race control reported no cause for the retirement.", "No decision was recorded on it."):
         assert any("isn't there" in v for v in _check(_story(essential=text))), text
+
+
+def test_filler_from_the_prompt_v5_pilot_is_caught():
+    # Piastri R12 S, Stroll R17 R, three stories with "Rain was reported"
+    for text in ("No incidents or safety periods were recorded for him.", "The stop came away from any Virtual Safety Car period.", "Rain was reported during the session."):
+        assert any("didn't happen" in v for v in _check(_story(essential=text))), text
+    assert _check(_story(essential="Pierre Gasly started P14 and finished P10, scoring a point.")) == []
+
+
+def test_a_lead_taken_in_the_pit_stops_is_not_a_pass():
+    # R1 Russell: "A lap-27 pass on Hamilton gave Russell the win"
+    win = {**SHEET, "verdict_candidates": [{"kind": "win", "headline": "Russell took the lead for good on lap 27", "verdict": "He took the lead for good on lap 27, from Lewis Hamilton through the pit stops, and won."}]}
+    assert any("not by passing" in str(v) for v in check_story(_story(headline="A lap-27 pass on Hamilton gave Russell the win"), win, roster=ROSTER, entrants=ENTRANTS))
+    assert not any("not by passing" in str(v) for v in check_story(_story(headline="The pit stops on lap 27 gave Russell the win"), win, roster=ROSTER, entrants=ENTRANTS))
