@@ -26,6 +26,8 @@ Rules the site checks automatically; a story that breaks one is thrown away:
 - Sector claims ("fastest", "slowest", "perfect") must match the sector ranks exactly: "slowest" means last of all in that sector, and a lap is never "perfect" unless he was fastest in all three.
 - Qualifying: "knocked out in Q2" means he reached Q2 and missed Q3.
 - Practice: describe his programme (runs, compounds, long runs). A long run is a ranking only when the sheet ranks it.
+- Every sentence says something that happened. Leave out what didn't ("no incidents were recorded", "away from any Safety Car") and the weather.
+- A lead taken "through the pit stops" was not a pass on track: don't call it one.
 - Plain prose only: no markdown, no headings, no notes about the answer, nothing after the JSON.
 
 Three worked examples follow (an excerpt of each fact sheet, then the story). Match their shape and voice, not their words.

@@ -609,9 +609,7 @@ def prompt_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     without gaps in the data (REVIEW_ROUND3 #54) and without temperatures. The fact-checker still
     checks against the full sheet."""
     out = {k: v for k, v in sheet.items() if k not in PROMPT_DROP}
-    out.pop("weather", None)
-    if (sheet.get("weather") or {}).get("rain_reported"):
-        out["rain"] = "rain was reported during the session"  # only rain can change a story; temperatures never do
+    out.pop("weather", None)  # the timing data can't say whether rain changed a story; given a "rain" line, the model wrote it as filler (pilot 2)
     if out.get("stops"):
         out["stops"] = [{k: v for k, v in s.items() if not (k == "stationary" and str(v).startswith("not published")) and k != "pit_lane_time"} for s in out["stops"]]
     for key in ("stints", "runs"):

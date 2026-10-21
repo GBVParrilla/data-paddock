@@ -115,6 +115,8 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | G2 | Without a written head-to-head, the strip shows only the three facts and the gap chart (the computed head-to-head sentences are gone) | Keep them | They repeated the three facts in prose | `VsStrip` |
 | G3 | The long story and the analysis paragraph are no longer shown, even for templates and older stories that have them | Show them in Expert under the debrief | D7: Expert swaps the prose for the debrief; Essential stays the short story | `DriverStory.tsx` |
 | G4 | The deep dive keeps showing only the picked driver (not the comparison) | Both | The vs strip already covers the comparison; the deep dive stays about one driver | `RaceWeekend.tsx` |
+| H8 | Style rules (filler, non-events) apply when a story is written, not when a published story is re-checked | Gate publishing on them too | Re-checking would swap 63 true but padded pilot 2 stories for templates until pilot 3 | `check_story(style=...)` |
+| H9 | Weather leaves the prompt entirely, rain included | Keep "rain was reported" | The data can't say whether rain changed a race; the model wrote it as filler in 59 stories | `prompt_sheet` |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -254,6 +256,42 @@ The performance gate (90) holds for home and race pages but not for driver pages
 | # | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|
 | 61 | P2 | Driver pages score 79–87 on mobile performance (gate 90), on `main` too | Total blocking time is about 400ms on both, against about 50ms on a race page without a driver. The profile shows style, layout and many small tasks on a long page (classification, positions chart, debrief, vs strip), not one hot function. Deferring the deep dive didn't move it | open: next, measure with the classification virtualised or the positions chart drawn as one path |
+
+### Pilot 2 (prompt v5, effort medium): rounds 1, 12 and 17, 21 Oct (run 39648243904)
+
+**Pass rate and checks:**
+- 323 of 324 session stories written by Claude (99.7%; pilot 1 was 97.5%). 66 of 66 arcs and 139 of 139 head-to-heads.
+- 357 attempts for 323, an average of 1.11 (pilot 1: 1.29).
+- Published violations: 0 (245 invariants pass). Repeated headline shapes: 0% in every session. Missing-data sentences: 0.
+
+The same 15 stories, scored 1–5:
+
+| Story | v3 | v4 | v5 | Note |
+|---|---|---|---|---|
+| R1 R Russell | 4 | 4 | 4 | Clear; but the headline calls the pit-stop lead change "a lap-27 pass" |
+| R12 R Norris | 3.5 | 4.5 | 4.3 | Right; "Rain was reported" is filler |
+| R17 Q Verstappen | 3 | 3.5 | 4.5 | Sectors right now: fastest S1 and S3, S2 6th |
+| R12 S Piastri | 3.3 | 3.5 | 3.8 | Right; but "Rain was reported" and "No incidents or safety periods were recorded for him" |
+| R17 R Leclerc | 4 | 4 | 4 | Clear; the headline leads with a temporary dip |
+| R1 R Gasly | 4.3 | 4.5 | 4.5 | Good |
+| R12 R Alonso | 4.3 | 4.3 | 4 | "Regained nine places" for places he never had |
+| R17 R Hadjar | 3 | 4 | 4.3 | The overcut is explained now |
+| R1 Q Gasly | 3.8 | 4.5 | 4.7 | Best of the set |
+| R12 FP1 Lawson | 3.5 | 3.5 | 3.8 | Stand-in right; the headline is a programme; rain filler |
+| R1 R Hadjar | 4 | 3.5 | 3.8 | "He did not finish the race" repeats; Verstappen "went on to finish" (P6 unsaid) |
+| R17 R Stroll | 4.3 | 3.8 | 3.8 | "The stop came away from any Virtual Safety Car period" |
+| R12 Q Bottas | 2.5 | 3 | 4.5 | Right now: last of all in S2 |
+| R17 S Pérez | 4 | 3 | 4.3 | Right now: the lap-2 Safety Car beside the lap-2 exit |
+| R12 R Colapinto | 3.5 | 4.3 | 4 | Clear |
+
+Average **4.15** (v4: 3.86, v3: 3.67) against the 4.3 gate; none below 3. **The gate failed on the average again**; no factual slip was found in the 15.
+
+**Prompt v6** (the third and last pilot under the round's limit):
+- Weather is out of the prompt; 59 of the pilot's stories said "rain was reported".
+- A style rule rejects sentences about what didn't happen.
+- A headline may not call a lead taken through the pit stops "a pass".
+
+The style rules apply when a story is written. Published stories are re-checked for truth only, so the pilot 2 stories stay up (419 of 420); only Russell's "pass" headline shows a template until pilot 3.
 
 ## Round 3: owner actions
 
