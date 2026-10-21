@@ -117,6 +117,9 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | G4 | The deep dive keeps showing only the picked driver (not the comparison) | Both | The vs strip already covers the comparison; the deep dive stays about one driver | `RaceWeekend.tsx` |
 | H8 | Style rules (filler, non-events) apply when a story is written, not when a published story is re-checked | Gate publishing on them too | Re-checking would swap 63 true but padded pilot 2 stories for templates until pilot 3 | `check_story(style=...)` |
 | H9 | Weather leaves the prompt entirely, rain included | Keep "rain was reported" | The data can't say whether rain changed a race; the model wrote it as filler in 59 stories | `prompt_sheet` |
+| H10 | No fourth prompt iteration: pilot 3's misses are recorded with a model recommendation instead | Another round of prompt rules | The prompt allows three; v4–v6 each removed the pattern they targeted and the average stayed at 3.9–4.15 | — |
+| H11 | "Top/bottom half of the grid" is checked against the grid slot in a race and the classified position elsewhere; a claim about sectors is left to `check_sectors` | Ban the phrase | It is a fair phrase when true (Sainz "started from the back half of the grid" passes) | `check_half` |
+| H12 | Haiku writes every story; the 4.3 gate is recorded as missed (4.09), not chased further | Sonnet for race and sprint | Owner's call (cost); the truth checks and invariants hold either way | `F1_NARRATIVE_MODEL` |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -293,11 +296,45 @@ Average **4.15** (v4: 3.86, v3: 3.67) against the 4.3 gate; none below 3. **The 
 
 The style rules apply when a story is written. Published stories are re-checked for truth only, so the pilot 2 stories stay up (419 of 420); only Russell's "pass" headline shows a template until pilot 3.
 
+### Pilot 3 (prompt v6, effort medium): rounds 1, 12 and 17, 21 Oct
+
+**Pass rate and checks:**
+- 320 of 324 session stories written by Claude (98.8%; pilot 2 was 99.7%). 66 of 66 arcs and 139 of 139 head-to-heads.
+- 358 attempts for 324, an average of 1.10 (286 first try, 30 second, 8 third).
+- The 4 templates: 2 for lap times in Essential, 2 for "no decision recorded".
+- Published violations: 0 (245 invariants pass). Repeated headline shapes: 0%. Missing-data sentences: 0.
+- Across all 320: "rain" 0 (pilot 2: 59), "no incidents" 0, "pass" in a lead-through-the-stops headline 0. **v6 removed the filler it targeted.**
+
+The same 15 stories, scored 1–5:
+
+| Story | v3 | v4 | v5 | v6 | Note |
+|---|---|---|---|---|---|
+| R1 R Russell | 4 | 4 | 4 | 4.5 | Fixed: "took the lead from Hamilton through the pit stops", no "pass" |
+| R12 R Norris | 3.5 | 4.5 | 4.3 | 4.5 | No rain line; clean |
+| R17 Q Verstappen | 3 | 3.5 | 4.5 | 4.3 | Right; says "first and last sectors" twice over |
+| R12 S Piastri | 3.3 | 3.5 | 3.8 | 4 | Filler gone; "his tyres carried the whole race" repeats "without pitting" |
+| R17 R Leclerc | 4 | 4 | 4 | 4.5 | The VSC stop that still cost a place is explained |
+| R1 R Gasly | 4.3 | 4.5 | 4.5 | 4.3 | Good; the headline leads with a lost place on a 4-place climb |
+| R12 R Alonso | 4.3 | 4.3 | 4 | 4.3 | Right now (P18 to P9, 2 points); "around lap 34" for lap 34 |
+| R17 R Hadjar | 3 | 4 | 4.3 | 3.5 | Headline credits the overcut for P10 (it was a 12-place climb; the stop cost 2); opens "His" |
+| R1 Q Gasly | 3.8 | 4.5 | 4.7 | 3.5 | **Slip:** "a place in the top half of the grid" for P14 of 22 |
+| R12 FP1 Lawson | 3.5 | 3.5 | 3.8 | 3.8 | Stand-in right; "well adrift"; runs told out of order |
+| R1 R Hadjar | 4 | 3.5 | 3.8 | 4.3 | The repeat is gone |
+| R17 R Stroll | 4.3 | 3.8 | 3.8 | 4 | "with his teammate Fernando Alonso still in the race" is padding |
+| R12 Q Bottas | 2.5 | 3 | 4.5 | 4.5 | Right; "P21 of 22 … P22 and last overall" says it twice |
+| R17 S Pérez | 4 | 3 | 4.3 | 3.8 | "which is what race control reported around his retirement" is awkward |
+| R12 R Colapinto | 3.5 | 4.3 | 4 | 3.5 | Headline "climbed back from P20 to P14" vs "finished where he started"; ends on filler |
+
+Average **4.09** (v5: 4.15, v4: 3.86, v3: 3.67) against the 4.3 gate; none below 3. **The gate failed a third time.** v6 removed the filler, but the scores didn't rise. The weak spots moved to reasoning: a headline crediting the wrong cause (Hadjar), a contradiction (Colapinto), padding that restates the sentence before, and one claim the checker didn't cover (Gasly's "top half"). Those are judgement and sentence-craft limits of the model, not missing rules: each new rule has removed one pattern and another has taken its place.
+
+**Fix in this PR:** a new truth check, `check_half`. A "top/bottom half of the grid/field" claim must fit the position. Gasly's qualifying story now shows a template (416 of 417 Claude stories stay up). This is a check, not a prompt change, so no pilot is needed.
+
 ## Round 3: owner actions
 
 1. ~~Merge PR 1~~ (merged 20 Oct). ~~Merge PR 2~~ (merged 20 Oct). ~~Pilot v4~~ (run 20 Oct; above). ~~Merge PR 3~~ (merged 20 Oct).
-2. **Merge the pilot-fixes PR**, then **decide on the recommendation** above (set `F1_NARRATIVE_EFFORT` to `medium`, or keep `low`), then **run a second pilot**: the same settings as below. I'll re-score the same 15.
-3. *(done)* The first pilot: Actions → Site → Run workflow, mode `stories-only`, story_rounds `1,12,17`, max_new_stories `800`. It writes about 330 session stories (shorter now: headline and Essential only), about 140 head-to-heads and 66 weekend arcs, plus retries. Tell me when it has finished; I'll score the same 15 stories against the gate (average 4.3 or more, none below 3, no more than 10% of a session's headlines sharing a shape, no missing-data sentences). `MAX_NEW_STORIES` stays 0 for the daily run.
+2. ~~Pilot-fixes PR, effort medium, pilot 2~~ (21 Oct). ~~Prompt v6 PR, pilot 3~~ (21 Oct; above).
+4. ~~Decide on the story model~~: **Haiku for every story** (owner, 21 Oct; decision H12). The gate stays failed at 4.09; no story of the 15 is below 3, 0 published violations.
+5. **Run the full-season stories-only run**: Actions → Site → Run workflow, mode `stories-only`, story_rounds empty (every round), max_new_stories `3000`. About 1,530 session stories are still on older prompts or templates (324 of 1,858 are v6). At the pilot's ratios, that means about 310 arcs and 660 head-to-heads plus 10% retries: roughly 2,750 Claude calls. If the 270-minute budget runs out first, run it again with the same settings; stories already on v6 are skipped. `MAX_NEW_STORIES` stays 0 for the daily run. Tell me when it's done; I'll check the pass rate and invariants, then crawl the live site.
 
 ## Round 3: scorecard log
 
@@ -307,9 +344,9 @@ The style rules apply when a story is written. Published stories are re-checked 
 
 ## Round 3: next 3 actions
 
-1. Owner: run the pilot (above) and merge PR 3.
-2. Me: score the pilot when the owner reports it finished.
-3. Me: PR 4 (Circuit atlas) on top of PR 3's structure.
+1. Owner: merge the pilot 3 review PR, then the full-season stories-only run (owner action 5).
+2. Me: check that run (pass rate, invariants, headline shapes).
+3. Me: crawl the live site; re-score the BENCHMARKS §7 scorecard and the five personas (light and dark); then the small PRs (spoiler-free mode, follow a driver, changelog) and finding #61.
 
 # Round 2
 
@@ -597,6 +634,7 @@ Local suite on the production snapshot (upgraded) + pilot turn deltas: unit 44 p
 |---|---|---|---|---|---|---|
 | Scheduled `full`, 2026-10-19 13:24 UTC (run 39259824231, `main` 35cff79) | v2 (round 1) | 800 cap: 532 session stories, 89 weekend arcs, 179 head-to-heads, rounds 1–5 | 528 of 532 session stories (99.2%), 88 of 89 arcs | 4 session stories, 1 arc | 613 attempts for 532 stories (465 first try, 53 second, 14 third) | `MAX_NEW_STORIES` wasn't set before this run. It also recomputed all 1,815 turn-by-turn breakdowns. Merging round 2 (prompt v3) puts these stories behind the new rules, so they show as templates until rewritten |
 
+| Pilot 3 `stories-only`, 2026-10-21 ~20:00 UTC, rounds 1, 12, 17, effort medium | v6 | 324 session stories, 66 arcs, 139 head-to-heads | 320 of 324 (98.8%), 66 of 66 arcs, 139 of 139 head-to-heads | 4 session stories | 358 attempts for 324 stories (286 first try, 30 second, 8 third) | Quality gate failed (4.09 vs 4.3); model decision for the owner |
 | Pilot `stories-only`, 2026-10-19 ~15:30 UTC (run 39277498505), rounds 1, 12, 17 | v3 | 324 session stories, 66 arcs, 139 head-to-heads | 317 of 324 (97.8%), 66 of 66 arcs, 139 of 139 head-to-heads | 7 session stories | 459 attempts for 324 stories (212 first try, 101 second, 11 third) | Quality gate failed (3.67 vs 4.3); deploy job was still "waiting" when reviewed |
 
 No calls from this sandbox. Each workflow run now writes "Claude calls" and "published as fact-sheet templates" to the job summary; they will be copied here.

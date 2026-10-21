@@ -242,3 +242,13 @@ def test_a_lead_taken_in_the_pit_stops_is_not_a_pass():
     win = {**SHEET, "verdict_candidates": [{"kind": "win", "headline": "Russell took the lead for good on lap 27", "verdict": "He took the lead for good on lap 27, from Lewis Hamilton through the pit stops, and won."}]}
     assert any("not by passing" in str(v) for v in check_story(_story(headline="A lap-27 pass on Hamilton gave Russell the win"), win, roster=ROSTER, entrants=ENTRANTS))
     assert not any("not by passing" in str(v) for v in check_story(_story(headline="The pit stops on lap 27 gave Russell the win"), win, roster=ROSTER, entrants=ENTRANTS))
+
+
+def test_top_half_must_fit_the_position():
+    # R1 Q Gasly (prompt v6 pilot): "a place in the top half of the grid" for P14 of 22
+    quali = {**SHEET, "result": {"position": 14, "of": 22}}
+    assert any("doesn't fit P14 of 22" in str(v) for v in check_story(_story(essential="He ended the session in the top half of the grid."), quali, roster=ROSTER, entrants=ENTRANTS))
+    assert not any("doesn't fit" in str(v) for v in check_story(_story(essential="He qualified in the bottom half of the grid."), quali, roster=ROSTER, entrants=ENTRANTS))
+    race = {**SHEET, "result": {"grid": 17, "finish": 10}}
+    assert not any("doesn't fit" in str(v) for v in check_story(_story(essential="He started from the back half of the grid."), race, roster=ROSTER, entrants=ENTRANTS))
+    assert not any("doesn't fit" in str(v) for v in check_story(_story(essential="He was in the bottom half of the field in all three sectors."), quali, roster=ROSTER, entrants=ENTRANTS))

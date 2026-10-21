@@ -227,6 +227,29 @@ def check_motives(section: str, text: str) -> list[Violation]:
     return [Violation(section, f"\"{m.group()}\" is a guess at what he thought or wanted: the timing data can't show that")] if m else []
 
 
+HALF = re.compile(r"\b(top|front|upper|bottom|back|lower) half of the (grid|field|order|timesheet|classification)\b", re.I)
+
+
+def check_half(section: str, text: str, sheet: dict, field: int) -> list[Violation]:
+    """'Top half of the grid' must match the position: P14 of 22 is not (R1 Q Gasly, prompt v6 pilot). Checked
+    against the grid slot in a race, the classified position elsewhere; a sector claim is left to check_sectors."""
+    res = sheet.get("result") or {}
+    out = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        m = HALF.search(sentence)
+        if not m or "sector" in sentence.lower():
+            continue
+        race = "grid" in res
+        pos = res.get("grid") if race and m.group(2).lower() == "grid" else None if race else res.get("position")
+        n = res.get("of") or field
+        if not pos or not n:
+            continue
+        top = m.group(1).lower() in ("top", "front", "upper")
+        if (top and pos > (n + 1) // 2) or (not top and pos <= n // 2):
+            out.append(Violation(section, f"\"{m.group()}\" doesn't fit P{pos} of {n}"))
+    return out
+
+
 def check_stand_in(section: str, text: str, sheet: dict) -> list[Violation]:
     """A stand-in claim must match the entry list: Lawson really was Red Bull's stand-in at round 12
     (REVIEW_ROUND3 #60), so the claim is checked, not banned."""
@@ -407,6 +430,7 @@ def check_story(data: dict, sheet: dict, *, roster: dict[str, str], entrants: se
         out += check_out_of(section, text)
         out += check_points(section, text)
         out += check_stand_in(section, text, sheet)
+        out += check_half(section, text, sheet, len(entrants))
         out += check_motives(section, text)
         out += check_sectors(section, text, sheet)
         out += check_segments(section, text, sheet)
