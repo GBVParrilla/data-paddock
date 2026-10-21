@@ -82,13 +82,13 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
       <div className="h-[340px]">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 18, right: R_PAD, bottom: 4, left: 0 }} onMouseLeave={() => setHover(null)}>
-            <CartesianGrid stroke="var(--line)" vertical={false} />
+            <CartesianGrid stroke="var(--rule)" strokeDasharray="1 3" vertical={false} />
             {sc.map((s, i) => (
               <ReferenceArea key={i} x1={s.from} x2={s.to} fill="var(--yellow)" fillOpacity={0.07} stroke="none" ifOverflow="hidden"
                 label={{ value: s.label, position: 'insideTop', fill: 'var(--text-3)', fontSize: 10, dy: -14 }} />
             ))}
-            <XAxis dataKey="lap" type="number" domain={[1, maxLap]} tickCount={Math.min(12, maxLap)} allowDecimals={false} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} />
-            <YAxis reversed domain={[1, Math.max(maxPos, gridSize)]} ticks={[1, 5, 10, 15, 20, Math.max(maxPos, gridSize)].filter((t, i, a) => t <= Math.max(maxPos, gridSize) && a.indexOf(t) === i)} width={Y_W} tick={{ fill: 'var(--text-3)', fontSize: 11 }} stroke="var(--line)" tickLine={false} axisLine={false} tickFormatter={(v) => `P${v}`} />
+            <XAxis dataKey="lap" type="number" domain={[1, maxLap]} tickCount={Math.min(12, maxLap)} allowDecimals={false} tick={{ fill: 'var(--text-2)', fontSize: 11 }} stroke="var(--ink)" tickLine={false} />
+            <YAxis reversed domain={[1, Math.max(maxPos, gridSize)]} ticks={[1, 5, 10, 15, 20, Math.max(maxPos, gridSize)].filter((t, i, a) => t <= Math.max(maxPos, gridSize) && a.indexOf(t) === i)} width={Y_W} tick={{ fill: 'var(--text-2)', fontSize: 11 }} stroke="var(--ink)" tickLine={false} axisLine={false} tickFormatter={(v) => `P${v}`} />
             <Tooltip
               cursor={{ stroke: 'var(--line-2)' }}
               isAnimationActive={false}
@@ -108,7 +108,7 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
                         <span className="t2">{pos(id, lap) !== undefined ? `P${pos(id, lap)}` : '–'}</span>
                       </div>
                     ))}
-                    {pits.map((p) => <div key={p.driver_id} className="t2 mt-1">{drivers[String(p.driver_id)]?.code} pitted{p.duration_ms ? ` · ${(p.duration_ms / 1000).toFixed(1)}s` : ''}</div>)}
+                    {pits.map((p) => <div key={p.driver_id} className="t2 mt-1">{drivers[String(p.driver_id)]?.code} pitted{p.duration_ms ? `, ${(p.duration_ms / 1000).toFixed(1)}s` : ''}</div>)}
                   </div>
                 )
               }}
@@ -164,7 +164,7 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
                   const a = s.lap_start ?? 1, b = s.lap_end ?? a
                   const t = tyre(s.compound)
                   return (
-                    <div key={s.stint_number} title={`${t.label} · laps ${a}–${b}`} className="h-full rounded-[3px] text-[9px] font-bold flex items-center justify-center text-[#0c0e11]"
+                    <div key={s.stint_number} title={`${t.label} · laps ${a}–${b}`} className="h-full text-[9px] font-bold flex items-center justify-center text-[var(--ink)]" data-tyre
                       style={{ position: 'absolute', left: `${((a - 1) / maxLap) * 100}%`, width: `calc(${((b - a + 1) / maxLap) * 100}% - 2px)`, background: t.color }}>
                       {(b - a + 1) / maxLap > 0.06 ? t.letter : ''}
                     </div>

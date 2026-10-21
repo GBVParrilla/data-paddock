@@ -35,12 +35,13 @@ function TyreStrategy({ detail, headline, selected }: { detail: Detail; headline
           const d = headline.drivers[String(id)]
           const on = selected.includes(id)
           return (
-            <div key={id} className="grid grid-cols-[2.5rem_1fr] items-center gap-2" style={{ opacity: selected.length && !on ? 0.45 : 1 }}>
+            <div key={id} className="grid grid-cols-[2.5rem_1fr] items-center gap-2">
+              {/* only the bars fade for drivers not picked: the codes stay readable (WCAG AA) */}
               <span className={`text-[12px] num ${on ? 'font-semibold' : 't2'}`}>{d?.code}</span>
-              <div className="relative h-[13px]">
+              <div className="relative h-[13px]" style={{ opacity: selected.length && !on ? 0.4 : 1 }}>
                 {detail.stint_timeline.filter((s) => s.driver_id === id).map((s) => {
                   const a = s.lap_start ?? 1, b = s.lap_end ?? a, t = tyre(s.compound)
-                  return <div key={s.stint_number} title={`${d?.code} · ${t.label} · laps ${a}–${b}`} className="absolute top-0 h-full rounded-[3px]"
+                  return <div key={s.stint_number} title={`${d?.code} · ${t.label} · laps ${a}–${b}`} className="absolute top-0 h-full"
                     style={{ left: `${((a - 1) / maxLap) * 100}%`, width: `calc(${((b - a + 1) / maxLap) * 100}% - 2px)`, background: t.color }} />
                 })}
               </div>
@@ -70,7 +71,7 @@ function TurnByTurn({ sessionId, driver, headline }: { sessionId: number; driver
         <span className="text-[12px] t2 num">{label}</span>
         <div className="relative h-full">
           <div className="absolute top-0 bottom-0 left-1/2 w-px" style={{ background: 'var(--line-2)' }} />
-          <div className="absolute top-[5px] bottom-[5px] rounded-[3px]" title={title} style={{ background: color, left: ms < 0 ? `${50 - w}%` : '50%', width: `${Math.max(w, 0.4)}%` }} />
+          <div className="absolute top-[5px] bottom-[5px]" title={title} style={{ background: color, left: ms < 0 ? `${50 - w}%` : '50%', width: `${Math.max(w, 0.4)}%` }} />
         </div>
         <span className="text-[12px] num text-right">{ms > 0 ? '+' : ''}{(ms / 1000).toFixed(3)}</span>
       </div>
@@ -87,7 +88,7 @@ function TurnByTurn({ sessionId, driver, headline }: { sessionId: number; driver
         <p className="text-[13px] t2 mb-3">Measured on lap {t.lap_number}: the position data for his best lap, lap {t.best_lap_number}, is incomplete.</p>
       )}
       <div className="space-y-1">
-        {t.turns.map((x) => bar(String(x.number), `T${x.number}`, x.delta_ms, TIER_COLOR[turnTier(x)], `${x.rank ? `${nth(x.rank)} of ${x.of} through here · ` : ''}${x.apex_speed_kph.toFixed(0)} km/h apex${x.from_m != null ? ` · ${Math.round(x.from_m)}–${Math.round(x.to_m ?? 0)} m` : ''}`))}
+        {t.turns.map((x) => bar(String(x.number), `T${x.number}`, x.delta_ms, TIER_COLOR[turnTier(x)], `${x.rank ? `${nth(x.rank)} of ${x.of} through here, ` : ''}${x.apex_speed_kph.toFixed(0)} km/h apex${x.from_m != null ? `, ${Math.round(x.from_m)}–${Math.round(x.to_m ?? 0)} m` : ''}`))}
         {bar('rest', 'Other', rest, 'var(--none)', 'Timing that telemetry sampling can\'t place on a corner')}
       </div>
       <div className="grid grid-cols-[3.5rem_1fr_4.5rem] gap-2 mt-2 label"><span /><div className="flex justify-between"><span>Gained</span><span>Lost</span></div><span /></div>
@@ -152,7 +153,7 @@ function LongRunPace({ detail, headline, selected }: { detail: Detail; headline:
           return (
             <div key={r.driver_id} className="grid grid-cols-[2.5rem_1fr_5rem_4rem] items-center gap-2 h-6" style={{ opacity: selected.length && !on ? 0.5 : 1 }}>
               <span className={`text-[12px] ${on ? 'font-semibold' : 't2'}`}>{d?.code}</span>
-              <div className="h-[10px] rounded-[3px]" style={{ width: `${w}%`, background: teamColor(d?.team), opacity: 0.85 }} />
+              <div className="h-[10px]" style={{ width: `${w}%`, background: teamColor(d?.team), opacity: 0.85 }} />
               <span className="text-[12px] num text-right">{fmtMs(r.avg_lap_time_ms)}</span>
               <span className={`text-[12px] num text-right ${r.lap_count < 8 ? 't3 italic' : 't3'}`} title={r.lap_count < 8 ? 'Small sample' : undefined}>{r.lap_count} laps</span>
             </div>

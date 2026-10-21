@@ -9,7 +9,7 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 1. PR 1, Workstream F (turn-by-turn, #48, #49): merged (PR #7, 20 Oct).
 2. PR 2, Workstream H pipeline: merged (PR #8, 20 Oct). **The owner runs the pilot** (stories-only, rounds 1,12,17, max_new_stories 800). Then score the same 15 stories (list in PROGRESS.md round 2 "Pilot") against the gate: average ≥ 4.3, none below 3, ≤ 10% of a session's headlines sharing a shape, no missing-data sentences. Don't change stories until the owner reports the pilot finished.
 3. PR 3, Workstreams G and H UI: merged (PR #9). Pilot v4 scored 3.86 (gate 4.3; PROGRESS.md "Pilot (prompt v4)"). **Pilot-fixes PR open** (prompt v5); the owner then decides effort medium and runs a second pilot.
-4. PR 4, Workstream E (Circuit atlas).
+4. **PR 4, Workstream E (Circuit atlas): built and committed on the local branch `atlas` (on top of the pilot-fixes PR #10).** Push to the working branch once #10 merges (the PR diff then shows only the atlas commits). PROGRESS.md "Workstream E (PR 4)" has the proof and the Lighthouse table; new finding #61 (driver-page performance).
 5. Small PRs: spoiler-free mode, follow a driver, a changelog.
 
 ## State
@@ -30,4 +30,5 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 
 ## Next steps
 1. Owner merges the pilot-fixes PR, decides the effort, runs pilot 2; I re-score the same 15.
-2. PR 4 (Circuit atlas): build locally now; push after the pilot-fixes PR merges (restart the branch from main, then cherry-pick).
+2. When #10 merges: `git push origin atlas:claude/laughing-clarke-t71435` (fast-forward from #10's tip), open PR 4.
+3. After PR 4 merges: re-score the BENCHMARKS §7 scorecard and the five personas (light and dark), then the small PRs (spoiler-free mode, follow a driver, changelog).
