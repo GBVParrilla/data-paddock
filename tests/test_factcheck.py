@@ -216,3 +216,15 @@ def test_a_dns_story_has_no_full_story_repeating_it():
     sheet = {**SHEET, "result": {"status": "did not start", "grid": 5, "teammate": {"name": "Franco Colapinto", "finish": 14}}}
     t = template_story(sheet)
     assert t["essential"] and t["expert"] == ""
+
+
+def test_slips_from_the_prompt_v4_pilot_are_caught():
+    # R17 Q Verstappen: "sector-perfect" with a 6th-best sector 2; R12 Q Bottas: "slowest" in a sector he was 20th of 22 in
+    q = {**SHEET, "sectors": {"sector_1": {"rank": 1, "of": 22}, "sector_2": {"rank": 6, "of": 22}, "sector_3": {"rank": 1, "of": 22}}}
+    assert any("sector-perfect" in str(v) for v in check_story(_story(headline="Verstappen's sector-perfect lap put him on pole"), q, roster=ROSTER, entrants=ENTRANTS))
+    b = {**SHEET, "sectors": {"sector_1": {"rank": 21, "of": 22}, "sector_2": {"rank": 22, "of": 22}, "sector_3": {"rank": 20, "of": 22}}}
+    bad = [str(v) for v in check_story(_story(expert="His time was slowest in the middle and final sectors."), b, roster=ROSTER, entrants=ENTRANTS)]
+    assert any("slowest in sector 3" in v for v in bad) and not any("slowest in sector 2" in v for v in bad)
+    # R1 R Hadjar and R17 S Pérez: missing-data talk in new words
+    for text in ("Race control reported no cause for the retirement.", "No decision was recorded on it."):
+        assert any("isn't there" in v for v in _check(_story(essential=text))), text

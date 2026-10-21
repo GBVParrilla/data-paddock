@@ -53,7 +53,8 @@ CLIMB = re.compile(r"\b(climbed|gained|made up|moved up)\b")
 NUMBER = re.compile(r"(?<![\w.:])P?[+-]?\d+(?:\.\d+)?(?:s|%|st|nd|rd|th|°?C|kph|km/h)?(?![\w:])")  # "35.9C" is 35.9 (REVIEW_ROUND3)
 ORDINAL = re.compile(r"\b(\d+)(st|nd|rd|th)\b")
 # talk about what the data doesn't have: fine in an Expert note, never in Essential or an arc (REVIEW_ROUND3 #54)
-MISSING_DATA = re.compile(r"\b(not|never|isn't|aren't|wasn't|weren't) (published|available|recorded|given|stated|reported)\b|\bno (stated |published |recorded )?(reason|figure|data)\b|"
+MISSING_DATA = re.compile(r"\b(not|never|isn't|aren't|wasn't|weren't) (published|available|recorded|given|stated|reported)\b|\bno (stated |published |recorded )?(reason|figure|data|cause)\b|"
+                          r"\breported no (cause|reason)\b|\bno decision (was )?(recorded|given|published)\b|"
                           r"\bindicative\b|\bthe (timing )?(data|feed) (gives|shows|says|has) no\b|\bunpublished\b|\bunrecorded\b|\bdoesn't (say|show|give)\b|\bdoes not (say|show|give)\b", re.I)
 STAND_IN = re.compile(r"\bstand(ing)?[- ]in\b|\bstood in\b|\bin place of\b|\bdeputi[sz]\w*|\bsubstitut\w*|\breplac(ing|ed) (the )?(injured|regular|usual)\b|\bfilling in\b", re.I)
 # motives and inner states the timing data can't show (REVIEW_ROUND2 pilot: "a clean final push", "the place he would have been looking for")
@@ -241,12 +242,15 @@ FASTEST_IN = re.compile(rf"\b(?:fastest|quickest)\s+(?:of all\s+)?(?:in|through)
 SECTOR_WAS_FASTEST = re.compile(r"\bsector\s+([123])\s+(?:was|were)\s+(?:his\s+|the\s+)?(?:fastest|quickest)\b(?!\s+of\s+his)", re.I)
 WEAKEST = re.compile(r"\b(?:weakest|worst)\s+(?:sector\s+)?(?:was\s+)?(?:sector\s+|s)([123])\b|\bsector\s+([123])\s+(?:was|remained)\s+(?:his\s+|the\s+)?(?:weakest|worst|weak point)\b|"
                      r"\blost\s+(?:the\s+)?most(?:\s+time)?\s+in\s+sector\s+([123])\b", re.I)
+SLOWEST_IN = re.compile(rf"\bslowest\s+(?:of all\s+)?(?:in|through)\s+(?:both\s+)?(?:the\s+)?"
+                        rf"(?:(?P<words>{_SW}(?:\s+(?:and|&)\s+{_SW})?)(?P<two>\s+two)?\s+sectors?|sectors?\s+(?P<nums>[123](?:\s*(?:,|and|&)\s*[123])*))", re.I)
+PERFECT = re.compile(r"\b(sector[- ]perfect|perfect lap|flawless lap|fastest in every sector|fastest in all three sectors)\b", re.I)
 NEGATED = re.compile(r"\b(never|not|n't|no)\b[^.;]{0,25}$", re.I)
 
 
-def _fastest_claims(sent: str) -> list[int]:
+def _fastest_claims(sent: str, pattern: re.Pattern = FASTEST_IN) -> list[int]:
     out = []
-    for m in FASTEST_IN.finditer(sent):
+    for m in pattern.finditer(sent):
         if NEGATED.search(sent[: m.start()]):
             continue  # "never the fastest in any sector"
         if m.group("words"):
@@ -261,9 +265,10 @@ def _fastest_claims(sent: str) -> list[int]:
             out += [int(x) for x in re.findall(r"[123]", m.group("nums"))]
         elif m.group("s"):
             out.append(int(m.group("s")))
-    for m in SECTOR_WAS_FASTEST.finditer(sent):
-        if not NEGATED.search(sent[: m.start()]):
-            out.append(int(m.group(1)))
+    if pattern is FASTEST_IN:
+        for m in SECTOR_WAS_FASTEST.finditer(sent):
+            if not NEGATED.search(sent[: m.start()]):
+                out.append(int(m.group(1)))
     return out
 
 
@@ -279,6 +284,14 @@ def check_sectors(section: str, text: str, sheet: dict) -> list[Violation]:
         for k in _fastest_claims(sent):
             if k in ranks and ranks[k] != 1:
                 out.append(Violation(section, f"he wasn't fastest in sector {k} (he ranked {_ordinal(ranks[k])}): \"{sent.strip()[:100]}\""))
+        # "slowest in the middle and final sectors" for 22nd and 20th of 22 (R12 Q Bottas, prompt v4 pilot)
+        of = {int(k[-1]): v.get("of") for k, v in (sheet.get("sectors") or {}).items() if isinstance(v, dict)}
+        for k in _fastest_claims(sent, SLOWEST_IN):
+            if k in ranks and of.get(k) and ranks[k] != of[k]:
+                out.append(Violation(section, f"he wasn't slowest in sector {k} ({_ordinal(ranks[k])} of {of[k]}): \"{sent.strip()[:100]}\""))
+        # "sector-perfect lap" for a pole with a 6th-best sector 2 (R17 Q Verstappen, prompt v4 pilot)
+        if PERFECT.search(sent) and any(r != 1 for r in ranks.values()):
+            out.append(Violation(section, f"\"{PERFECT.search(sent).group()}\" is wrong: his sector ranks were " + ", ".join(f"S{s} {_ordinal(r)}" for s, r in sorted(ranks.items()))))
         for m in WEAKEST.finditer(sent):
             k = int(next(g for g in m.groups() if g))
             worst = max(ranks.values())

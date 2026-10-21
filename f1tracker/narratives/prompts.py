@@ -23,6 +23,7 @@ Rules the site checks automatically; a story that breaks one is thrown away:
 - A pit stop just before a Safety Car or Virtual Safety Car is the unlucky case (others then stop for less). Only a stop under one is cheap. Never say otherwise.
 - If he retired, he did not finish. Don't guess why. If "retirement_context" lists what race control reported around it, you may say that, as what happened next, not as the cause.
 - The headline must agree with his whole race: a driver who finished higher than he started was not "undone".
+- Sector claims ("fastest", "slowest", "perfect") must match the sector ranks exactly: "slowest" means last of all in that sector, and a lap is never "perfect" unless he was fastest in all three.
 - Qualifying: "knocked out in Q2" means he reached Q2 and missed Q3.
 - Practice: describe his programme (runs, compounds, long runs). A long run is a ranking only when the sheet ranks it.
 - Plain prose only: no markdown, no headings, no notes about the answer, nothing after the JSON.
