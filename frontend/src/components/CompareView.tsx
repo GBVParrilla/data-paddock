@@ -2,6 +2,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { api, fmtMs, STATIC, type Driver, type Headline, type HeadlineQualifying, type IncidentCase } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
 import { compareOptions } from '../lib/compare'
+import { ChartTable } from './ChartTable'
 import { StoryMeta } from './StoryMeta'
 
 const last = (d: Driver) => d.name.split(' ').slice(-1)[0]
@@ -109,6 +110,8 @@ export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cas
               </LineChart>
             </ResponsiveContainer>
           </div>
+          <ChartTable caption={`Gap between ${a.name} and ${b.name} by lap`} file={`gap-${a.code}-${b.code}.csv`.toLowerCase()} head={['Lap', 'Ahead', 'Gap']}
+            rows={gap.map((g) => [g.lap, g.gap_ms === 0 ? 'Level' : g.gap_ms < 0 ? a.code : b.code, `${(Math.abs(g.gap_ms) / 1000).toFixed(3)}s`])} />
         </div>
       )}
 

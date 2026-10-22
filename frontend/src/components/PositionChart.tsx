@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChartAnnotation, Driver, HeadlineRace, PitStopRow, PositionByLap, StintRow } from '../api/client'
 import { tyre } from '../lib/f1'
+import { ChartTable } from './ChartTable'
 import { slotColors, teamColor } from '../lib/teamColors'
 
 const Y_W = 34
@@ -76,6 +77,8 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
   const ordered = [...ids.filter((id) => !focus.includes(id)), ...focus]
   const pos = (id: number, lap: number) => data.find((d) => d.lap === lap)?.[`d${id}`]
   const sc = neutralisations(annotations)
+  // the table's columns: lap 1, each quarter and the last lap
+  const checkpoints = [...new Set([1, Math.round(maxLap / 4), Math.round(maxLap / 2), Math.round((3 * maxLap) / 4), maxLap])].filter((l) => l >= 1)
 
   return (
     <div>
@@ -179,6 +182,9 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
           </div>
         </div>
       )}
+      <ChartTable caption="Position at the start and at each quarter of the race" file="positions.csv"
+        head={['Driver', 'Grid', ...checkpoints.map((l) => `Lap ${l}`)]}
+        rows={race.map((r) => [drivers[String(r.driver_id)]?.code ?? String(r.driver_id), r.grid_position ? `P${r.grid_position}` : null, ...checkpoints.map((l) => { const p = pos(r.driver_id, l); return p ? `P${p}` : null })])} />
     </div>
   )
 }

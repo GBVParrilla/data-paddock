@@ -78,6 +78,8 @@ async function calmRacePage(page: Page, label: string) {
       tableOverflow: table ? table.scrollWidth - table.clientWidth : 0,
       podium: [...main.querySelectorAll('section[aria-label="Classification"] tr[data-pos="1"], section[aria-label="Classification"] tr[data-pos="2"], section[aria-label="Classification"] tr[data-pos="3"]')].map((t) => t.getAttribute('data-driver')),
       raceLike: !!main.querySelector('section[aria-label="Race positions"]'),
+      momentTexts: [...main.querySelectorAll('section[aria-label="Key moments"] li')].map((e) => (e as HTMLElement).innerText),
+      margin: [...main.querySelectorAll('[data-margin-moment]')].map((e) => [e.getAttribute('data-margin-moment'), (e as HTMLElement).innerText]),
     }
   })
   // the mission stays visible: every race and sprint names someone beyond the podium near the top
@@ -88,6 +90,12 @@ async function calmRacePage(page: Page, label: string) {
   // every column, Pts included, fits its panel at this width (found at 1280-1360px in round 2)
   expect.soft(r.tableOverflow, `${label}: classification scrolls sideways by ${r.tableOverflow}px`).toBeLessThanOrEqual(1)
   expect.soft(r.panels.length, `${label}: panels before a driver is picked (${r.panels.join(', ')})`).toBeLessThanOrEqual(5)
+  // #63: one gap, one row ("Hülkenberg ... 1.720s behind Lawson" and "Lawson ... 1.720s ahead of Hülkenberg" was one fact twice)
+  const gaps = r.momentTexts.flatMap((t) => t.match(/\d+\.\d{3}s (?:behind|ahead of)/g)?.map((g) => g.split(' ')[0]) ?? [])
+  expect.soft(gaps.filter((g, i) => gaps.indexOf(g) !== i), `${label}: the same gap in two key moments`).toEqual([])
+  // #64: a margin note about a driver says whose it is
+  const nameless = r.margin.filter(([who, text]) => who !== 'session' && !/\(.+\)/.test(text!)).map(([, t]) => t)
+  expect.soft(nameless, `${label}: margin notes without a driver`).toEqual([])
   const both = r.summary.filter((f) => r.moments.includes(f))
   expect.soft(both, `${label}: facts in both the summary and key moments`).toEqual([])
 }
@@ -267,6 +275,15 @@ test('a driver\'s race has its own page', async ({ page }) => {
   const top = async (l: Locator) => (await l.boundingBox())!.y
   expect(await top(story)).toBeLessThan(await top(page.getByRole('region', { name: 'Classification' })))
   await check(page, w, 'driver race page')
+  // BENCHMARKS row 17: the numbers behind each chart, as a table and a CSV
+  const positions = page.getByRole('region', { name: 'Race positions' })
+  await positions.scrollIntoViewIfNeeded()
+  await positions.getByText('The numbers').click()
+  expect(await positions.locator('[data-chart-table] tbody tr').count(), 'one row per driver in the positions table').toBeGreaterThanOrEqual(18)
+  await expect(positions.getByRole('link', { name: 'Download CSV' })).toHaveAttribute('download', 'positions.csv')
+  const vs = story.locator('[data-vs]')
+  await vs.getByText('The numbers').click()
+  expect(await vs.locator('[data-chart-table] tbody tr').count(), 'one row per lap in the gap table').toBeGreaterThan(10)
   // a tap on another driver shows their story: it replaces this one and scrolls into view
   await page.getByRole('region', { name: 'Classification' }).locator('tr[data-driver]', { hasText: 'OCO' }).click()
   const next = page.getByRole('region', { name: "Esteban Ocon's weekend" })

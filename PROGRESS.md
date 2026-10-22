@@ -121,6 +121,9 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H11 | "Top/bottom half of the grid" is checked against the grid slot in a race and the classified position elsewhere; a claim about sectors is left to `check_sectors` | Ban the phrase | It is a fair phrase when true (Sainz "started from the back half of the grid" passes) | `check_half` |
 | H12 | Haiku writes every story; the 4.3 gate is recorded as missed (4.09), not chased further | Sonnet for race and sprint | Owner's call (cost); the truth checks and invariants hold either way | `F1_NARRATIVE_MODEL` |
 | E6 | A picked driver's story moves above the classification; a tap scrolls to it (reduced motion: no smooth scroll) | Scroll only, leaving the order | A link should open on what it names, without script; the story is what the reader picked | `RaceWeekend.tsx` story slot |
+| H13 | Head-to-heads get their own prompt version (`COMPARISON_PROMPT_VERSION`), so the next stories run rewrites the 715 head-to-heads and nothing else | Bump `PROMPT_VERSION` | That would rewrite all 2,700 stories for a head-to-head change |
+| H14 | The checker keeps each driver's raw sector times; only the prompt drops them (`prompt_pair`) | Drop them everywhere | Dropping them failed 693 published head-to-heads on the number check |
+| E7 | Each chart gets "The numbers": a closed table and a CSV download | Always-open tables | A new default-visible line, kept to one closed summary per chart: BENCHMARKS row 17 asks for the data beside every chart |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -261,9 +264,9 @@ The performance gate (90) holds for home and race pages but not for driver pages
 |---|---|---|---|---|
 | 61 | P2 | Driver pages score 79–87 on mobile performance (gate 90), on `main` too | Total blocking time is about 400ms on both, against about 50ms on a race page without a driver. The profile shows style, layout and many small tasks on a long page (classification, positions chart, debrief, vs strip), not one hot function. Deferring the deep dive didn't move it | open: next, measure with the classification virtualised or the positions chart drawn as one path |
 | 62 | P1 | A driver link opened on the race, not the driver | Stroll R17: the story started 2,278px down on desktop and 3,264px on a phone, below the classification, key moments and position chart | fixed in this PR: 988px and 1,133px; crawl test |
-| 63 | P2 | Key moments repeat a midfield fact from both sides | Singapore: "Hülkenberg finished P8, 1.720s behind Lawson" and "Lawson finished P7, 1.720s ahead of Hülkenberg" | open |
-| 64 | P2 | Sheet margin items don't say whose | "6 lost places", "7 recovery": no driver name, unlike the pinned moments | open |
-| 65 | P3 | Head-to-head prose reads lap times aloud and states non-events | Stroll vs Alonso R17: "29.139 against 29.282 in sector 1 …", "No shared incidents were recorded" | open: the style rules aren't applied to head-to-heads; needs the next stories run to take effect |
+| 63 | P2 | Key moments repeat a midfield fact from both sides | Singapore: "Hülkenberg finished P8, 1.720s behind Lawson" and "Lawson finished P7, 1.720s ahead of Hülkenberg" | fixed (PR A): a midfield line counts every driver it names as mentioned; crawl check "the same gap in two key moments" fails on the live site at Singapore |
+| 64 | P2 | Sheet margin items don't say whose | "6 lost places", "7 recovery": no driver name, unlike the pinned moments | fixed (PR A): "Lost places (Lindblad)"; crawl check on every race and session |
+| 65 | P3 | Head-to-head prose reads lap times aloud and states non-events | Stroll vs Alonso R17: "29.139 against 29.282 in sector 1 …", "No shared incidents were recorded" | fixed in code (PR A), live after the owner's head-to-head run: Claude gets sector gaps and ranks instead of raw times, no empty incident list; the checker rejects times read out and non-events at generation. 685 of 715 published head-to-heads read times out and 387 state a non-event; they stay up (truth-only re-check) until rewritten |
 
 ### Pilot 2 (prompt v5, effort medium): rounds 1, 12 and 17, 21 Oct (run 39648243904)
 
@@ -395,6 +398,7 @@ Sections: A 32/32, B 13/14, C 13/16, D 10/12, E 7/12, F 10/14.
 - 9 older rows are drivers who did not start. By design they get no Claude call, and they publish the code-written story.
 - Weekend arcs: 397 of 397 by Claude. Head-to-heads: 715, none templates.
 - Filler across every published Claude story: "rain" 0, "half of the grid" claims 7 (all checked by `check_half`). One "no incidents or Safety Cars involved" got past the style rule ("involved", not "involving"); the rule now matches both. That applies to future stories only (H8).
+6. **After the next PR merges: a head-to-head stories run.** Actions → Site → Run workflow, mode `stories-only`, story_rounds empty, max_new_stories `1000`. Only the 715 head-to-heads are rewritten (H13); session stories and arcs are skipped.
 
 ## Round 3: scorecard log
 
