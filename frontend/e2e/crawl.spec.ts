@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 // Crawls the site the way a visitor does: in-app links only, never a reload. At every step:
 // no console errors or uncaught exceptions, a non-empty <main>, and no leaked machine text.
@@ -260,8 +260,18 @@ test('links shared before path routing still open the right page', async ({ page
 test('a driver\'s race has its own page', async ({ page }) => {
   const w = watch(page)
   await page.goto('race/1/driver/gasly')
-  await expect(page.getByRole('region', { name: "Pierre Gasly's weekend" })).toBeVisible()
+  const story = page.getByRole('region', { name: "Pierre Gasly's weekend" })
+  await expect(story).toBeVisible()
+  // #62: the story comes straight after the race sheet, before the classification (it was 1,750px down,
+  // past the classification, key moments and position chart)
+  const top = async (l: Locator) => (await l.boundingBox())!.y
+  expect(await top(story)).toBeLessThan(await top(page.getByRole('region', { name: 'Classification' })))
   await check(page, w, 'driver race page')
+  // a tap on another driver shows their story: it replaces this one and scrolls into view
+  await page.getByRole('region', { name: 'Classification' }).locator('tr[data-driver]', { hasText: 'OCO' }).click()
+  const next = page.getByRole('region', { name: "Esteban Ocon's weekend" })
+  await expect(next).toBeInViewport()
+  await check(page, w, 'driver picked from the table')
 })
 
 test('Expert mode shows the debrief and opens more detail, and survives a shared link', async ({ page }) => {

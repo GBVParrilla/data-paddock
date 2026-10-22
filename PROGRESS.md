@@ -120,6 +120,7 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H10 | No fourth prompt iteration: pilot 3's misses are recorded with a model recommendation instead | Another round of prompt rules | The prompt allows three; v4–v6 each removed the pattern they targeted and the average stayed at 3.9–4.15 | — |
 | H11 | "Top/bottom half of the grid" is checked against the grid slot in a race and the classified position elsewhere; a claim about sectors is left to `check_sectors` | Ban the phrase | It is a fair phrase when true (Sainz "started from the back half of the grid" passes) | `check_half` |
 | H12 | Haiku writes every story; the 4.3 gate is recorded as missed (4.09), not chased further | Sonnet for race and sprint | Owner's call (cost); the truth checks and invariants hold either way | `F1_NARRATIVE_MODEL` |
+| E6 | A picked driver's story moves above the classification; a tap scrolls to it (reduced motion: no smooth scroll) | Scroll only, leaving the order | A link should open on what it names, without script; the story is what the reader picked | `RaceWeekend.tsx` story slot |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -259,6 +260,10 @@ The performance gate (90) holds for home and race pages but not for driver pages
 | # | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|
 | 61 | P2 | Driver pages score 79–87 on mobile performance (gate 90), on `main` too | Total blocking time is about 400ms on both, against about 50ms on a race page without a driver. The profile shows style, layout and many small tasks on a long page (classification, positions chart, debrief, vs strip), not one hot function. Deferring the deep dive didn't move it | open: next, measure with the classification virtualised or the positions chart drawn as one path |
+| 62 | P1 | A driver link opened on the race, not the driver | Stroll R17: the story started 2,278px down on desktop and 3,264px on a phone, below the classification, key moments and position chart | fixed in this PR: 988px and 1,133px; crawl test |
+| 63 | P2 | Key moments repeat a midfield fact from both sides | Singapore: "Hülkenberg finished P8, 1.720s behind Lawson" and "Lawson finished P7, 1.720s ahead of Hülkenberg" | open |
+| 64 | P2 | Sheet margin items don't say whose | "6 lost places", "7 recovery": no driver name, unlike the pinned moments | open |
+| 65 | P3 | Head-to-head prose reads lap times aloud and states non-events | Stroll vs Alonso R17: "29.139 against 29.282 in sector 1 …", "No shared incidents were recorded" | open: the style rules aren't applied to head-to-heads; needs the next stories run to take effect |
 
 ### Pilot 2 (prompt v5, effort medium): rounds 1, 12 and 17, 21 Oct (run 39648243904)
 
@@ -329,23 +334,79 @@ Average **4.09** (v5: 4.15, v4: 3.86, v3: 3.67) against the 4.3 gate; none below
 
 **Fix in this PR:** a new truth check, `check_half`. A "top/bottom half of the grid/field" claim must fit the position. Gasly's qualifying story now shows a template (416 of 417 Claude stories stay up). This is a check, not a prompt change, so no pilot is needed.
 
+### Live audit after the full-season run (22 Oct, `main` at the PR #13 merge, data 00:41 UTC)
+
+**Crawl against the live URL: green on desktop and mobile** (24 of 24; two tests first hit 502s from the local relay, not the site, and passed on one re-run). The sandbox's Chromium doesn't trust the egress proxy's CA, so the crawl ran through a localhost relay that fetches the live site with Node (TLS verified against the proxy CA). TLS checks stayed on.
+
+**Scorecard (BENCHMARKS §7), live: 85/100.** Every A row is at 2.
+
+| Row | Score | Evidence |
+|---|---|---|
+| A1–A2 classification, constructors | 2, 2 | Carried from the round 3 review; not re-checked against formula1.com in this pass |
+| A3 no contradictions | 2 | Singapore, Stroll: corners mostly bottom quarter, sectors 19th of 22 in each; corner colours are ranks (#48, #49 invariants) |
+| A4 odd results explained | 2 | "Retired, classified" (Albon R17), DNS rows, stand-in noted (Lawson R12) |
+| A5 no leftover text | 2 | Crawl's leaked-text check, every race and session |
+| A6 five random stories | 2 | R4 Q Bottas, R6 Q Gasly, R2 S Russell, R14 Q Hülkenberg, R10 FP3 Bearman (4 outside the top 10): 0 factual errors; one stretch (Bearman's 11th-of-22 sector "ranked well") |
+| A7 freshness | 2 | "Data through round 17, updated 22 Oct" |
+| A8 caveats | 2 | "Corner times aren't reliable for this lap"; one practice caveat line |
+| B9–B14 | 2 each | Home plates and gap ladder; no crashes in the crawl; 3-sentence sheet caption; glossary terms; map legend; "Verstappen led every lap" |
+| B15 phone | **1** | **#62**: a driver link opened 3,264px down on a phone (2,278px on desktop), below the classification, key moments and position chart |
+| C16, C18–C20, C22, C23 | 2 each | Debrief (findings, stints, stops, segments, long runs); corner map; /methods |
+| C17 table beside every chart | 1 | The vs strip's gap chart and the position chart have no table |
+| C21 lap drill-down | 0 | Not built |
+| D24, D26–D28 | 2 each | Verdict headlines; computed verdicts; midfield stories as specific (Stroll, Bottas); head-to-heads agree |
+| D25 cause → effect | 1 | Pilot 3: 4.09 of 5; causal slips (R17 Hadjar) |
+| D29 key moments | 1 | **#63**: Singapore lists the same midfield fact twice ("Hülkenberg finished P8, 1.720s behind Lawson" and "Lawson finished P7, 1.720s ahead of Hülkenberg") |
+| E30, E31 | 2, 2 | Links restore state (crawl); per-page titles and OG cards |
+| E32 share card per driver | 1 | Race cards only |
+| E33 follow a driver | 1 | Only on /races (small PR planned) |
+| E34 ritual | 1 | Home updates each round; no season Wrapped |
+| E35 spoiler-free | 0 | Small PR planned |
+| F36 Lighthouse | 1 | Driver page 79 mobile (#61) |
+| F37, F38, F41, F42 | 2 each | Arrows and labels with colour; zoom and keyboard; no filler; cached snapshot |
+| F39 changelog | 0 | Small PR planned |
+| F40 feedback without GitHub | 1 | GitHub only |
+
+Sections: A 32/32, B 13/14, C 13/16, D 10/12, E 7/12, F 10/14.
+
+**Personas (1–10), from screenshots of the live site in light and dark (`scratchpad/live-shots`, 24 shots) and the 5 random stories.** The dark theme scored the same as light: same structure, contrast holds.
+
+| Persona | Score | Why not 9 |
+|---|---|---|
+| New fan | 7 | A shared driver link opened on the race, not the driver (#62); "6 lost places" in the sheet margin doesn't say whose (#64) |
+| Data-curious fan | 8 | Head-to-head prose reads lap times aloud and ends on "No shared incidents were recorded" (#65) |
+| Diehard | 7 | No lap drill-down (C21); no table under the gap chart |
+| Website critic | 7 | The duplicate midfield rows (#63); the cryptic margin items (#64) |
+| Data engineer | 8 | Driver-page Lighthouse 79 (#61); A1–A2 not re-verified against formula1.com this pass |
+
+**Fixed in this PR: #62.** A picked driver's story now sits directly under the race sheet, and a tap scrolls to it. Stroll at Singapore: the story starts at 988px on desktop (was 2,278px) and 1,133px on a phone (was 3,264px). The crawl test fails on the old layout and passes on the new one. Screenshots: `docs/screenshots/round3/audit/` (before62-*, after62-*).
+
 ## Round 3: owner actions
 
 1. ~~Merge PR 1~~ (merged 20 Oct). ~~Merge PR 2~~ (merged 20 Oct). ~~Pilot v4~~ (run 20 Oct; above). ~~Merge PR 3~~ (merged 20 Oct).
 2. ~~Pilot-fixes PR, effort medium, pilot 2~~ (21 Oct). ~~Prompt v6 PR, pilot 3~~ (21 Oct; above).
 4. ~~Decide on the story model~~: **Haiku for every story** (owner, 21 Oct; decision H12). The gate stays failed at 4.09; no story of the 15 is below 3, 0 published violations.
-5. **Run the full-season stories-only run**: Actions → Site → Run workflow, mode `stories-only`, story_rounds empty (every round), max_new_stories `3000`. About 1,530 session stories are still on older prompts or templates (324 of 1,858 are v6). At the pilot's ratios, that means about 310 arcs and 660 head-to-heads plus 10% retries: roughly 2,750 Claude calls. If the 270-minute budget runs out first, run it again with the same settings; stories already on v6 are skipped. `MAX_NEW_STORIES` stays 0 for the daily run. Tell me when it's done; I'll check the pass rate and invariants, then crawl the live site.
+5. ~~Full-season stories-only run~~ (21–22 Oct; snapshot 00:41 UTC, below).
+
+### Full-season stories-only run (prompt v6, Haiku, effort medium): 21–22 Oct
+
+- Published: 2,271 Claude stories and 20 templates (99.1%). All 245 invariants pass on the snapshot; the live site carries it (`meta.json` 00:41 UTC).
+- Session stories: 1,527 written in this run, 1.11 attempts each (1,379 first try, 125 second, 23 third). 10 fell back to templates, among them: 2 named the wrong qualifying segment for the exit, 1 a wrong sector rank, 1 lap times in Essential, 2 headline rules.
+- 9 older rows are drivers who did not start. By design they get no Claude call, and they publish the code-written story.
+- Weekend arcs: 397 of 397 by Claude. Head-to-heads: 715, none templates.
+- Filler across every published Claude story: "rain" 0, "half of the grid" claims 7 (all checked by `check_half`). One "no incidents or Safety Cars involved" got past the style rule ("involved", not "involving"); the rule now matches both. That applies to future stories only (H8).
 
 ## Round 3: scorecard log
 
 | Date | Commit | Total | A | B | C | D | E | F | Gate |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-19 | 3ab9aa4 | 75 | 26/32 | 14/14 | 7/16 | 10/12 | 7/12 | 11/14 | passes (reviewer's scores) |
+| 2026-10-22 | live, after PR #13 and the full-season run | 85 | 32/32 | 13/14 | 13/16 | 10/12 | 7/12 | 10/14 | passes; every A row at 2 (my scores) |
 
 ## Round 3: next 3 actions
 
-1. Owner: merge the pilot 3 review PR, then the full-season stories-only run (owner action 5).
-2. Me: check that run (pass rate, invariants, headline shapes).
+1. Owner: merge the #62 PR.
+2. Me: #63 (duplicate midfield rows) and #64 (margin items that don't say whose), with crawl tests; then #65 (head-to-head filler and lap times).
 3. Me: crawl the live site; re-score the BENCHMARKS §7 scorecard and the five personas (light and dark); then the small PRs (spoiler-free mode, follow a driver, changelog) and finding #61.
 
 # Round 2
@@ -634,6 +695,7 @@ Local suite on the production snapshot (upgraded) + pilot turn deltas: unit 44 p
 |---|---|---|---|---|---|---|
 | Scheduled `full`, 2026-10-19 13:24 UTC (run 39259824231, `main` 35cff79) | v2 (round 1) | 800 cap: 532 session stories, 89 weekend arcs, 179 head-to-heads, rounds 1–5 | 528 of 532 session stories (99.2%), 88 of 89 arcs | 4 session stories, 1 arc | 613 attempts for 532 stories (465 first try, 53 second, 14 third) | `MAX_NEW_STORIES` wasn't set before this run. It also recomputed all 1,815 turn-by-turn breakdowns. Merging round 2 (prompt v3) puts these stories behind the new rules, so they show as templates until rewritten |
 
+| Full season `stories-only`, 2026-10-21/22, every round, effort medium | v6 | 1,527 session stories plus arcs and head-to-heads | 99.1% of all published stories | 10 session stories | 1,527 stories: 1,379 first try, 125 second, 23 third | Live from 00:41 UTC |
 | Pilot 3 `stories-only`, 2026-10-21 ~20:00 UTC, rounds 1, 12, 17, effort medium | v6 | 324 session stories, 66 arcs, 139 head-to-heads | 320 of 324 (98.8%), 66 of 66 arcs, 139 of 139 head-to-heads | 4 session stories | 358 attempts for 324 stories (286 first try, 30 second, 8 third) | Quality gate failed (4.09 vs 4.3); model decision for the owner |
 | Pilot `stories-only`, 2026-10-19 ~15:30 UTC (run 39277498505), rounds 1, 12, 17 | v3 | 324 session stories, 66 arcs, 139 head-to-heads | 317 of 324 (97.8%), 66 of 66 arcs, 139 of 139 head-to-heads | 7 session stories | 459 attempts for 324 stories (212 first try, 101 second, 11 third) | Quality gate failed (3.67 vs 4.3); deploy job was still "waiting" when reviewed |
 
