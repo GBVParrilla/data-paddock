@@ -16,6 +16,7 @@ Prompt: `docs/LONG_RUN_PROMPT_ROUND3.md`. Review: `docs/REVIEW_ROUND3.md` (findi
 | Prompt says | What this run does | Why |
 |---|---|---|
 | One PR per workstream, each from the latest `main` | One workstream at a time on `claude/laughing-clarke-t71435`. The next starts from `main` after the previous PR merges | This session may push only to that branch (as in round 2) |
+| One PR per workstream | PR #15 carries four workstreams as four commits (#63–#65 and tables; lap drill-down; spoiler-free, follow, changelog; #61) | The owner asked for all of them at once and this session can push to one branch only; a merge commit per workstream would have meant four round trips |
 | Merge the two docs-only commits separately | They ride in PR 1 with the review and the prompt (`docs/REVIEW_ROUND3.md`, `docs/LONG_RUN_PROMPT_ROUND3.md`) | Same branch. They are docs only |
 | #48 is "a lap-start distance offset" | Four causes, all fixed at the source (below) | Measured on the 51 breakdowns |
 
@@ -419,8 +420,8 @@ Sections: A 32/32, B 13/14, C 13/16, D 10/12, E 7/12, F 10/14.
 
 ## Round 3: next 3 actions
 
-1. Owner: merge the #62 PR.
-2. Me: #63 (duplicate midfield rows) and #64 (margin items that don't say whose), with crawl tests; then #65 (head-to-head filler and lap times).
+1. Owner: merge PR #15, then run the head-to-head rewrite (owner action 6).
+2. Me: crawl the live site and re-score the scorecard and the five personas (light and dark).
 3. Me: crawl the live site; re-score the BENCHMARKS §7 scorecard and the five personas (light and dark); then the small PRs (spoiler-free mode, follow a driver, changelog) and finding #61.
 
 # Round 2
