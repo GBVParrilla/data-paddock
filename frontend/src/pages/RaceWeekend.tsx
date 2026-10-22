@@ -20,6 +20,7 @@ import { useSectorStats } from '../lib/sectors'
 import { positionsTitle } from '../lib/takeaways'
 import { slotColors, teamColor } from '../lib/teamColors'
 import { useMode } from '../state/mode'
+import { SpoilerGate, usePrefs } from '../state/prefs'
 import { useStore } from '../state/store'
 
 // the chart library is loaded only when the position chart scrolls into view
@@ -40,6 +41,7 @@ export function RaceWeekend() {
   const [search, setSearch] = useSearchParams()
   const { sessionId, driverIds, vsId, setEvent, setSession, selectDriver, setVs, clearDrivers } = useStore()
   const { expert } = useMode()
+  const { hidden } = usePrefs()
   const detailId = useId()
   const hydrated = useRef(false)
 
@@ -166,6 +168,22 @@ export function RaceWeekend() {
   useTitle(event.data ? `${event.data.name}${sessionLabel ? ` · ${sessionLabel}` : ''}${mapFor ? ` · ${mapFor.code}` : ''}` : null)
 
   if (!Number.isFinite(eventId) || event.error || (sessionsQ.error && !sessionsQ.loading)) return <NotFound what="race" />
+
+  // spoiler-free: a weekend the reader hasn't revealed shows its name and one button, nothing that gives a result away
+  if (event.data && hidden(event.data.round) && sessions.some((s) => s.ingestion.transforms)) {
+    return (
+      <div className="wrap pt-8">
+        <nav className="label mb-3" aria-label="Breadcrumb">
+          <Link to="/races" className="hover:text-[var(--text)]">{event.data.season_year} races</Link><span className="mx-2">/</span><span>Round {event.data.round}</span>
+        </nav>
+        <section className="sheet px-4 sm:px-6 py-8" aria-label="Spoiler-free">
+          <h1 className="h-feature">{event.data.name}</h1>
+          <p className="t2 mt-2 text-[13px]">{[event.data.circuit_name, event.data.country].filter(Boolean).join(', ')}</p>
+          <SpoilerGate className="mt-6" rounds={[event.data.round]} what="Spoiler-free mode is on, so this weekend's results are hidden." />
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="wrap pt-8" data-session={sessionId ?? undefined}>

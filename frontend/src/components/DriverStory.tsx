@@ -3,6 +3,7 @@ import { api, type Driver, type Headline, type SessionRow, type SessionType, typ
 import { useFetch } from '../hooks/useFetch'
 import { SESSION_SHORT, SESSION_TINY } from '../lib/f1'
 import { useMode } from '../state/mode'
+import { usePrefs } from '../state/prefs'
 import { asSource, useStorySource } from '../state/sources'
 import { Term } from './Glossary'
 import { Debrief } from './Debrief'
@@ -45,6 +46,8 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
   children?: ReactNode
 }) {
   const { expert } = useMode()
+  const { followed, setFollowed } = usePrefs()
+  const following = followed?.id === driver.id
   const ready = sessions.filter((s) => s.ingestion.transforms)
   const results = useFetch((s) => Promise.all(ready.map((x) => api.headline(x.id, s))), [ready.map((x) => x.id).join(',')], ready.length > 0)
   const story = useFetch((s) => api.narrative(sessionId, driver.id, s), [sessionId, driver.id])
@@ -62,6 +65,10 @@ export function DriverStory({ eventId, sessionId, sessions, driver, color, onSes
             <div className="h2">{driver.name}</div>
             <div className="label">{driver.team}{driver.number ? `, car ${driver.number}` : ''}{driver.stand_in && <>, <Term k="standin">stand-in</Term> (usually {driver.usual_team})</>}</div>
           </div>
+          <button type="button" className="btn text-[12px] ml-1" aria-pressed={following}
+            onClick={() => setFollowed(following ? null : { id: driver.id, ref: driver.driver_ref, name: driver.name })}>
+            {following ? 'Following' : 'Follow'}
+          </button>
         </div>
         <div className="ml-auto flex items-center gap-1" role="tablist" aria-label="Sessions">
           {ready.map((s, i) => {

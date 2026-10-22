@@ -325,6 +325,58 @@ test('a lap opens its sectors: from the chart, the picker and a shared link (BEN
   await check(page, w, 'lap picked on the chart')
 })
 
+test('follow a driver: Follow on their panel puts them first on home', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('race/17/driver/stroll')
+  const story = page.getByRole('region', { name: "Lance Stroll's weekend" })
+  await story.getByRole('button', { name: 'Follow' }).click()
+  await expect(story.getByRole('button', { name: 'Following' })).toHaveAttribute('aria-pressed', 'true')
+  await page.goto('./')
+  const mine = page.getByRole('region', { name: 'The driver you follow' })
+  await expect(mine).toContainText('Lance Stroll')
+  await expect(mine.getByRole('link')).toHaveAttribute('href', /\/race\/\d+\/driver\/stroll$/)
+  // on the championship ladder too, after the top ten
+  await expect(page.locator('section[aria-label="Championship"] [data-followed]')).toContainText('Stroll')
+  await check(page, w, 'home, following a driver')
+  await mine.getByRole('button', { name: 'Stop following' }).click()
+  await expect(mine).toHaveCount(0)
+})
+
+test('spoiler-free mode hides the latest round until revealed', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('./')
+  const latest = page.getByRole('article', { name: 'Latest race' })
+  await expect(latest.locator('[data-moment-n], .num').first()).toBeVisible()
+  await page.getByRole('button', { name: /spoiler-free/i }).click()
+  await expect(page.getByRole('button', { name: /spoiler-free/i })).toHaveAttribute('aria-pressed', 'true')
+  // the latest plate keeps its circuit but not its podium; the standings wait too
+  await expect(latest.getByRole('button', { name: 'Show the result' })).toBeVisible()
+  await expect(page.locator('section[aria-label="Championship"] [data-spoiler-gate]')).toBeVisible()
+  await check(page, w, 'home, spoiler-free')
+  // the race page shows only its name and the button
+  await latest.getByRole('link').first().click()
+  const gate = page.getByRole('region', { name: 'Spoiler-free' })
+  await expect(gate).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Classification' })).toHaveCount(0)
+  await check(page, w, 'race page, spoiler-free')
+  await gate.getByRole('button', { name: 'Show the result' }).click()
+  await expect(page.getByRole('region', { name: 'Classification' })).toBeVisible()
+  // older rounds were never hidden
+  await page.goto('race/1')
+  await expect(page.getByRole('region', { name: 'Classification' })).toBeVisible()
+  await page.getByRole('button', { name: /spoiler-free/i }).click()
+  await expect(page.getByRole('button', { name: /spoiler-free/i })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('the changelog lists dated changes and is linked from every page', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('./')
+  await page.getByRole('contentinfo').getByRole('link', { name: 'What changed' }).click()
+  await expect(page.locator('h1')).toHaveText('What changed')
+  expect(await page.locator('main time[datetime]').count()).toBeGreaterThan(3)
+  await check(page, w, 'changelog')
+})
+
 test('Expert mode shows the debrief and opens more detail, and survives a shared link', async ({ page }) => {
   const w = watch(page)
   await page.goto('race/1/driver/gasly?mode=expert')

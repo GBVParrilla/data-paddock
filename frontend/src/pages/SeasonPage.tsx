@@ -8,6 +8,7 @@ import { useFetch } from '../hooks/useFetch'
 import { useTitle } from '../hooks/useTitle'
 import { STATUS_TEXT } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
+import { SpoilerGate, usePrefs } from '../state/prefs'
 import { useStore } from '../state/store'
 
 // one neutral ramp: wins brightest, podiums, then points finishes; the rest stay unfilled
@@ -130,6 +131,8 @@ export function SeasonPage() {
   const rounds = st.data?.rounds ?? []
   const nameOf = (r: number) => events.data?.find((e) => e.round === r)?.name.replace(' Grand Prix', '') ?? `Round ${r}`
   const pickedDriver: StandingRow | undefined = pick?.type === 'driver' ? st.data?.drivers.find((d) => String(d.driver_id) === pick.id) : undefined
+  const { hidden } = usePrefs()
+  const secret = rounds.filter((r) => hidden(r))
 
   return (
     <div className="wrap pt-10">
@@ -145,7 +148,8 @@ export function SeasonPage() {
         </div>
       </div>
 
-      {st.data && view === 'drivers' && st.data.drivers.length > 0 && (
+      {secret.length > 0 && <SpoilerGate className="mb-6" rounds={secret} what={`Spoiler-free mode is on: the standings include round ${secret[0]}.`} />}
+      {secret.length === 0 && st.data && view === 'drivers' && st.data.drivers.length > 0 && (
         <div className="grid lg:grid-cols-12 gap-4 mb-4">
           <TitleFight rows={st.data.drivers} rounds={rounds} nameOf={nameOf} />
           <Leader rows={st.data.drivers} rounds={rounds} />
@@ -161,7 +165,7 @@ export function SeasonPage() {
       {st.error && <p className="t2">{st.error.message}</p>}
       {st.loading && <div className="panel skeleton h-[600px]" />}
 
-      {st.data && view === 'drivers' && (
+      {secret.length === 0 && st.data && view === 'drivers' && (
         <section className="panel overflow-x-auto" aria-label="Driver standings">
           <table className="tbl">
             <thead>
@@ -209,7 +213,7 @@ export function SeasonPage() {
         </section>
       )}
 
-      {st.data && view === 'teams' && (
+      {secret.length === 0 && st.data && view === 'teams' && (
         <section className="panel" aria-label="Constructor standings">
           <table className="tbl">
             <thead><tr><th className="w-10">Pos</th><th>Team</th><th className="w-1/2" /><th className="r">Pts</th></tr></thead>
