@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, fmtMs, STATIC, type Driver, type Headline, type HeadlineQualifying, type IncidentCase } from '../api/client'
 import { useFetch } from '../hooks/useFetch'
@@ -56,9 +57,10 @@ function facts(h: Headline, quali: HeadlineQualifying[] | null, a: number, b: nu
  * teammate by default), three computed facts, the gap between them lap by lap, and the written head-to-head when
  * one exists. Never a second full story: "Read X's story" switches the selection instead.
  */
-export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cases, onVs, onRead }: {
+export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cases, onVs, onRead, lap, onLap, lapCard }: {
   eventId: number; sessionId: number; headline: Headline; quali: HeadlineQualifying[] | null; a: Driver; b: Driver; colors: [string, string]
   cases: IncidentCase[]; onVs: (id: number) => void; onRead: (id: number) => void
+  lap?: number | null; onLap?: (lap: number) => void; lapCard?: ReactNode
 }) {
   const cmp = useFetch((s) => api.compare(sessionId, a.id, b.id, !STATIC, s), [sessionId, a.id, b.id])
   const gap = cmp.data?.gap_over_time ?? []
@@ -98,11 +100,13 @@ export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cas
           <div className="label mb-1">Gap by lap: above the line, {a.code} is ahead</div>
           <div className="h-28">
             <ResponsiveContainer>
-              <LineChart data={gap.map((g) => ({ lap: g.lap, gap: -g.gap_ms }))} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <LineChart data={gap.map((g) => ({ lap: g.lap, gap: -g.gap_ms }))} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+                onClick={(st) => { if (onLap && st?.activeLabel != null) onLap(Number(st.activeLabel)) }} style={onLap ? { cursor: 'pointer' } : undefined}>
                 <CartesianGrid stroke="var(--rule)" strokeDasharray="1 3" vertical={false} />
                 <XAxis dataKey="lap" tick={{ fill: 'var(--text-2)', fontSize: 11 }} stroke="var(--ink)" tickLine={false} />
                 <YAxis domain={[-lim, lim]} ticks={[-lim, 0, lim]} width={40} tick={{ fill: 'var(--text-3)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v > 0 ? '+' : ''}${(v / 1000).toFixed(0)}s`} />
                 <ReferenceLine y={0} stroke="var(--ink)" />
+                {lap != null && <ReferenceLine x={lap} stroke="var(--ink)" strokeDasharray="2 2" />}
                 <Tooltip isAnimationActive={false} cursor={{ stroke: 'var(--line-2)' }} content={({ active, payload, label }) => active && payload?.length ? (
                   <div className="tip num"><div className="label">Lap {label}</div>{(() => { const v = Number(payload[0].value); return `${v >= 0 ? a.code : b.code} ahead by ${Math.abs(v / 1000).toFixed(1)}s` })()}</div>
                 ) : null} />
@@ -110,6 +114,7 @@ export function VsStrip({ eventId, sessionId, headline, quali, a, b, colors, cas
               </LineChart>
             </ResponsiveContainer>
           </div>
+          {lapCard}
           <ChartTable caption={`Gap between ${a.name} and ${b.name} by lap`} file={`gap-${a.code}-${b.code}.csv`.toLowerCase()} head={['Lap', 'Ahead', 'Gap']}
             rows={gap.map((g) => [g.lap, g.gap_ms === 0 ? 'Level' : g.gap_ms < 0 ? a.code : b.code, `${(Math.abs(g.gap_ms) / 1000).toFixed(3)}s`])} />
         </div>

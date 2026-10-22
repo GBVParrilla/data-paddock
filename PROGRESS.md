@@ -124,6 +124,9 @@ Until the recompute, the 1,815 version 2 breakdowns stay publishable behind the 
 | H13 | Head-to-heads get their own prompt version (`COMPARISON_PROMPT_VERSION`), so the next stories run rewrites the 715 head-to-heads and nothing else | Bump `PROMPT_VERSION` | That would rewrite all 2,700 stories for a head-to-head change |
 | H14 | The checker keeps each driver's raw sector times; only the prompt drops them (`prompt_pair`) | Drop them everywhere | Dropping them failed 693 published head-to-heads on the number check |
 | E7 | Each chart gets "The numbers": a closed table and a CSV download | Always-open tables | A new default-visible line, kept to one closed summary per chart: BENCHMARKS row 17 asks for the data beside every chart |
+| E8 | The lap drill-down shows sectors, not corners: the corner breakdown exists only for each driver's best lap. The card says when the picked lap is the one the corner map shows | Corners for every lap | Every lap would multiply the turn-delta downloads (about 70 minutes a run) by the race distance |
+| E9 | The lap rows load only after a lap is picked; the picker's laps come from the position data already on the page | Load with the page | Driver pages are already over the performance budget (#61) |
+| E10 | The drill-down is on race and sprint pages (the position chart and the head-to-head gap chart) | Practice and qualifying too | Those pages have no lap chart to pick from; the debrief already lists their runs |
 | H7 | "Sector N was his weakest" is accepted within 2 places of his worst rank and outside the top 5 | Exactly the worst | Ranks like 12th, 12th, 13th made "sector 2 was weakest" a false alarm; a top-5 sector called weak is the real slip | `check_sectors` |
 
 ### Workstream H pipeline (PR 2): what changed
@@ -263,6 +266,7 @@ The performance gate (90) holds for home and race pages but not for driver pages
 | # | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|
 | 61 | P2 | Driver pages score 79–87 on mobile performance (gate 90), on `main` too | Total blocking time is about 400ms on both, against about 50ms on a race page without a driver. The profile shows style, layout and many small tasks on a long page (classification, positions chart, debrief, vs strip), not one hot function. Deferring the deep dive didn't move it | open: next, measure with the classification virtualised or the positions chart drawn as one path |
+| 66 | P2 | Scorecard row 21: no lap drill-down | Nothing on a chart opened a single lap | fixed (PR B): tap a lap on the position or gap chart, or pick one, for each driver's lap time and three sectors (against his best, ranked on that lap), tyre and stint lap, pit lap; `?lap=N` restores it. Crawl test |
 | 62 | P1 | A driver link opened on the race, not the driver | Stroll R17: the story started 2,278px down on desktop and 3,264px on a phone, below the classification, key moments and position chart | fixed in this PR: 988px and 1,133px; crawl test |
 | 63 | P2 | Key moments repeat a midfield fact from both sides | Singapore: "Hülkenberg finished P8, 1.720s behind Lawson" and "Lawson finished P7, 1.720s ahead of Hülkenberg" | fixed (PR A): a midfield line counts every driver it names as mentioned; crawl check "the same gap in two key moments" fails on the live site at Singapore |
 | 64 | P2 | Sheet margin items don't say whose | "6 lost places", "7 recovery": no driver name, unlike the pinned moments | fixed (PR A): "Lost places (Lindblad)"; crawl check on every race and session |

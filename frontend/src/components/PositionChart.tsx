@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChartAnnotation, Driver, HeadlineRace, PitStopRow, PositionByLap, StintRow } from '../api/client'
 import { tyre } from '../lib/f1'
 import { ChartTable } from './ChartTable'
@@ -37,7 +37,7 @@ function dashedIds(race: HeadlineRace[], drivers: Record<string, Driver>): Set<n
  * Lap-by-lap running order. With no driver selected every car is drawn in its team colour;
  * selecting drivers brings them forward (others fade) and adds their pit stops and tyre stints.
  */
-export function PositionChart({ rows, drivers, race, selected, annotations, pitStops: allStops, stints, onSelect }: {
+export function PositionChart({ rows, drivers, race, selected, annotations, pitStops: allStops, stints, onSelect, lap, onLap }: {
   rows: PositionByLap[]
   drivers: Record<string, Driver>
   race: HeadlineRace[]
@@ -46,6 +46,9 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
   pitStops: PitStopRow[]
   stints: StintRow[]
   onSelect: (id: number) => void
+  /** the lap picked for the drill-down (a line on the chart), and what a click on the chart picks */
+  lap?: number | null
+  onLap?: (lap: number) => void
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const pitStops = useMemo(() => allStops.filter((p) => !(p.lane_duration_ms && p.lane_duration_ms >= SUSPENSION_LANE_MS)), [allStops])
@@ -84,8 +87,10 @@ export function PositionChart({ rows, drivers, race, selected, annotations, pitS
     <div>
       <div className="h-[340px]">
         <ResponsiveContainer>
-          <LineChart data={data} margin={{ top: 18, right: R_PAD, bottom: 4, left: 0 }} onMouseLeave={() => setHover(null)}>
+          <LineChart data={data} margin={{ top: 18, right: R_PAD, bottom: 4, left: 0 }} onMouseLeave={() => setHover(null)}
+            onClick={(st) => { if (onLap && st?.activeLabel != null) onLap(Number(st.activeLabel)) }} style={onLap ? { cursor: 'pointer' } : undefined}>
             <CartesianGrid stroke="var(--rule)" strokeDasharray="1 3" vertical={false} />
+            {lap != null && <ReferenceLine x={lap} stroke="var(--ink)" strokeDasharray="2 2" />}
             {sc.map((s, i) => (
               <ReferenceArea key={i} x1={s.from} x2={s.to} fill="var(--yellow)" fillOpacity={0.07} stroke="none" ifOverflow="hidden"
                 label={{ value: s.label, position: 'insideTop', fill: 'var(--text-3)', fontSize: 10, dy: -14 }} />

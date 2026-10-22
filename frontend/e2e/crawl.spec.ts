@@ -291,6 +291,40 @@ test('a driver\'s race has its own page', async ({ page }) => {
   await check(page, w, 'driver picked from the table')
 })
 
+test('a lap opens its sectors: from the chart, the picker and a shared link (BENCHMARKS row 21)', async ({ page }) => {
+  const w = watch(page)
+  // a shared link: Stroll's lap 20 at Singapore
+  await page.goto('race/17/driver/stroll?lap=20')
+  const positions = page.getByRole('region', { name: 'Race positions' })
+  await positions.scrollIntoViewIfNeeded()
+  const card = positions.locator('[data-lap-card="20"]')
+  await expect(card).toBeVisible()
+  // his line and his teammate's, each with three sectors
+  expect(await card.locator('[data-lap-driver]').count()).toBe(2)
+  expect(await card.locator('[data-lap-driver]').first().locator('tbody tr').count()).toBe(3)
+  await expect(card.locator('[data-lap-driver]').first()).toContainText(/S1.*\d/s)
+  await check(page, w, 'lap card from a link')
+  // the next lap, kept in the link
+  await card.getByRole('button', { name: 'Next lap' }).click()
+  await expect(positions.locator('[data-lap-card="21"]')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('lap')).toBe('21')
+  // nobody picked: the picker shows the first three on that lap
+  await page.goto('race/17')
+  await page.getByRole('region', { name: 'Race positions' }).scrollIntoViewIfNeeded()
+  await page.getByRole('combobox', { name: 'Show a lap' }).selectOption('30')
+  const top3 = page.locator('[data-lap-card="30"] [data-lap-driver]')
+  await expect(top3).toHaveCount(3)
+  // a click on the chart picks the lap under the pointer
+  const chart = page.getByRole('region', { name: 'Race positions' }).locator('.recharts-wrapper').first()
+  const box = (await chart.boundingBox())!
+  await chart.click({ position: { x: box.width * 0.5, y: box.height * 0.5 } })
+  await expect(page.locator('[data-lap-card]')).toBeVisible()
+  expect(Number(new URL(page.url()).searchParams.get('lap'))).toBeGreaterThan(10)
+  await page.locator('[data-lap-card]').getByRole('button', { name: 'Close' }).click()
+  await expect(page.locator('[data-lap-card]')).toHaveCount(0)
+  await check(page, w, 'lap picked on the chart')
+})
+
 test('Expert mode shows the debrief and opens more detail, and survives a shared link', async ({ page }) => {
   const w = watch(page)
   await page.goto('race/1/driver/gasly?mode=expert')
