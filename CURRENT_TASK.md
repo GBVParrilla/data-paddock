@@ -30,5 +30,5 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 - Never ask questions. Record each call under "Decisions made" in the PR and in PROGRESS.md.
 
 ## Next steps
-1. Owner merges the pilot 3 review PR and runs the full-season stories-only run (PROGRESS.md owner action 5: story_rounds empty, max_new_stories 3000). Then I check its pass rate and invariants.
+1. Full-season run done (99.1% Claude). Live crawl green; scorecard 85/100 (every A row at 2); personas 7–8. #62 PR open (driver story under the sheet). Next: #63, #64, then the small PRs (spoiler-free, follow a driver, changelog) and #61.
 2. Meanwhile: re-score the BENCHMARKS §7 scorecard and the five personas (light and dark), then the small PRs (spoiler-free mode, follow a driver, changelog).

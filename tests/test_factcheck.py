@@ -232,7 +232,8 @@ def test_slips_from_the_prompt_v4_pilot_are_caught():
 
 def test_filler_from_the_prompt_v5_pilot_is_caught():
     # Piastri R12 S, Stroll R17 R, three stories with "Rain was reported"
-    for text in ("No incidents or safety periods were recorded for him.", "The stop came away from any Virtual Safety Car period.", "Rain was reported during the session."):
+    for text in ("No incidents or safety periods were recorded for him.", "The stop came away from any Virtual Safety Car period.", "Rain was reported during the session.",
+                 "He finished on top, with no incidents or Safety Cars involved in his laps."):  # full-season run, a Q story
         assert any("didn't happen" in v for v in _check(_story(essential=text))), text
     assert _check(_story(essential="Pierre Gasly started P14 and finished P10, scoring a point.")) == []
 

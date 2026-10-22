@@ -67,7 +67,7 @@ UNDONE = re.compile(r"\b(undone|undid|ruined|wrecked|derailed|spoiled|thrown awa
 RE_ESSENTIAL_DATA = re.compile(r"\b\d+(?:st|nd|rd|th)(?: of \d+)? in (?:sector|s)\s?[123]\b|\b(?:sector|s)\s?[123] (?:rank|ranked)\b|\d+\.\d+s (?:in|through) the pit ?lane\b", re.I)
 # sentences about what didn't happen to him: filler in a short story (prompt v5 pilot: "No incidents or safety
 # periods were recorded for him", "The stop came away from any Virtual Safety Car period")
-NON_EVENT = re.compile(r"\bno (incidents?|safety (car )?periods?|penalt(y|ies)|investigations?)\b[^.]*\b(recorded|reported|noted|involving)\b|"
+NON_EVENT = re.compile(r"\bno (incidents?|safety (car )?periods?|safety cars?|penalt(y|ies)|investigations?)\b[^.]*\b(recorded|reported|noted|involv\w*)\b|"
                        r"\baway from any\b|\bwas not (affected|involved)\b|\bnothing (else )?(happened|of note)\b|\brain was reported\b", re.I)
 PASS_WORD = re.compile(r"\b(pass|passed|passes|passing|overtak\w*)\b", re.I)
 RECOVERY = re.compile(r"\b(recover\w*|won back|despite|still|yet|but|anyway|regardless)\b", re.I)

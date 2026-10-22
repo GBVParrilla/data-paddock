@@ -115,7 +115,16 @@ export function RaceWeekend() {
   const qualiSession = sessions.find((s) => s.session_type === (session?.session_type === 'S' ? 'SQ' : 'Q') && s.ingestion.transforms)
   const quali = useFetch((s) => api.headline(qualiSession!.id, s), [qualiSession?.id], raceLike && !!qualiSession && !!mapFor)
   const rc = useFetch((s) => api.raceControl(sessionId!, s), [sessionId, ready], ready)
-  const pick = (id: number) => selectDriver(id)
+  // a tap shows the story it opens: scroll to it once it renders (a link opens there anyway)
+  const storyRef = useRef<HTMLDivElement>(null)
+  const reveal = useRef(false)
+  const pick = (id: number) => { reveal.current = true; selectDriver(id) }
+  useEffect(() => {
+    if (!reveal.current || !mapFor) return
+    reveal.current = false
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    storyRef.current?.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' })
+  }, [mapFor])
 
   // what the top of the page says, each fact once (lib/mentions)
   const plan = useMemo(
@@ -165,6 +174,24 @@ export function RaceWeekend() {
       )}
       {!sessionsQ.loading && sessions.length > 0 && !sessions.some((s) => s.ingestion.transforms) && <h1 className="h-feature mb-6">{event.data?.name}</h1>}
 
+      {/* a picked driver's story comes straight after the sheet, so a driver link opens on it (#62) */}
+      {ready && plan && sessionId !== null && mapFor && (
+        <div className="mb-4 scroll-mt-20" ref={storyRef} data-story-slot>
+        <Boundary key={mapFor.id} label={`${mapFor.name}'s story`}>
+          <DriverStory eventId={eventId} sessionId={sessionId} sessions={sessions} driver={mapFor} color={colors[0]} onSession={setSession}>
+            {started && vsDriver && headline.data && (
+              <Boundary label="The comparison">
+                <Suspense fallback={<div className="skeleton h-40 mx-5 mb-5" />}>
+                  <VsStrip eventId={eventId} sessionId={sessionId} headline={headline.data} quali={quali.data?.qualifying ?? null} a={mapFor} b={vsDriver}
+                    colors={[colors[0], colors[1]]} cases={rc.data?.cases ?? []} onVs={setVs} onRead={pick} />
+                </Suspense>
+              </Boundary>
+            )}
+          </DriverStory>
+        </Boundary>
+        </div>
+      )}
+
       {ready && plan && (
         <div className="grid lg:grid-cols-12 gap-4 items-start">
           <section className="panel lg:col-span-6 xl:col-span-5 flex flex-col min-w-0" aria-label="Classification">
@@ -208,20 +235,6 @@ export function RaceWeekend() {
 
       {ready && plan && sessionId !== null && (
         <div className="mt-4 space-y-4">
-          {mapFor && (
-            <Boundary key={mapFor.id} label={`${mapFor.name}'s story`}>
-              <DriverStory eventId={eventId} sessionId={sessionId} sessions={sessions} driver={mapFor} color={colors[0]} onSession={setSession}>
-                {started && vsDriver && headline.data && (
-                  <Boundary label="The comparison">
-                    <Suspense fallback={<div className="skeleton h-40 mx-5 mb-5" />}>
-                      <VsStrip eventId={eventId} sessionId={sessionId} headline={headline.data} quali={quali.data?.qualifying ?? null} a={mapFor} b={vsDriver}
-                        colors={[colors[0], colors[1]]} cases={rc.data?.cases ?? []} onVs={setVs} onRead={(id) => selectDriver(id)} />
-                    </Suspense>
-                  </Boundary>
-                )}
-              </DriverStory>
-            </Boundary>
-          )}
           {detail.data && headline.data && session && (
             <section className="panel" aria-label="More detail">
               <button type="button" className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[var(--hover)]"
