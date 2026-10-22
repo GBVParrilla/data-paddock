@@ -308,6 +308,11 @@ test('a lap opens its sectors: from the chart, the picker and a shared link (BEN
   await card.getByRole('button', { name: 'Next lap' }).click()
   await expect(positions.locator('[data-lap-card="21"]')).toBeVisible()
   expect(new URL(page.url()).searchParams.get('lap')).toBe('21')
+  // the head-to-head gap chart picks a lap too, and shows it in the strip
+  const gapChart = page.locator('[data-vs] [data-gap-chart]')
+  const g = (await gapChart.boundingBox())!
+  await gapChart.click({ position: { x: g.width * 0.6, y: g.height / 2 } })
+  await expect(page.locator('[data-vs] [data-lap-card]')).toBeVisible()
   // nobody picked: the picker shows the first three on that lap
   await page.goto('race/17')
   await page.getByRole('region', { name: 'Race positions' }).scrollIntoViewIfNeeded()
