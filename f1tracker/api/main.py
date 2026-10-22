@@ -401,12 +401,13 @@ def compare(session_id: int, driver_a: int = Query(...), driver_b: int = Query(.
 
 
 @app.get("/sessions/{session_id}/lap-times")
-def lap_times(session_id: int, db: OrmSession = Depends(get_db)) -> dict[str, list[list[int]]]:
-    """{driver_id: [[lap_number, lap_time_ms], ...]} - lets the static site build any two-driver gap chart."""
+def lap_times(session_id: int, db: OrmSession = Depends(get_db)) -> dict[str, list[list[int | None]]]:
+    """{driver_id: [[lap_number, lap_time_ms, sector_1_ms, sector_2_ms, sector_3_ms, pit], ...]}: any two-driver gap
+    chart, and one lap's sectors when a reader picks it (pit is 1 for an in- or out-lap)."""
     _session_or_404(db, session_id)
-    out: dict[str, list[list[int]]] = {}
+    out: dict[str, list[list[int | None]]] = {}
     for lap in db.scalars(select(Lap).where(Lap.session_id == session_id, Lap.lap_time_ms.is_not(None)).order_by(Lap.driver_id, Lap.lap_number)).all():
-        out.setdefault(str(lap.driver_id), []).append([lap.lap_number, lap.lap_time_ms])
+        out.setdefault(str(lap.driver_id), []).append([lap.lap_number, lap.lap_time_ms, lap.sector_1_ms, lap.sector_2_ms, lap.sector_3_ms, int(bool(lap.is_pit_lap or lap.is_pit_out_lap))])
     return out
 
 

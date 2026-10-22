@@ -78,6 +78,8 @@ async function calmRacePage(page: Page, label: string) {
       tableOverflow: table ? table.scrollWidth - table.clientWidth : 0,
       podium: [...main.querySelectorAll('section[aria-label="Classification"] tr[data-pos="1"], section[aria-label="Classification"] tr[data-pos="2"], section[aria-label="Classification"] tr[data-pos="3"]')].map((t) => t.getAttribute('data-driver')),
       raceLike: !!main.querySelector('section[aria-label="Race positions"]'),
+      momentTexts: [...main.querySelectorAll('section[aria-label="Key moments"] li')].map((e) => (e as HTMLElement).innerText),
+      margin: [...main.querySelectorAll('[data-margin-moment]')].map((e) => [e.getAttribute('data-margin-moment'), (e as HTMLElement).innerText]),
     }
   })
   // the mission stays visible: every race and sprint names someone beyond the podium near the top
@@ -88,6 +90,12 @@ async function calmRacePage(page: Page, label: string) {
   // every column, Pts included, fits its panel at this width (found at 1280-1360px in round 2)
   expect.soft(r.tableOverflow, `${label}: classification scrolls sideways by ${r.tableOverflow}px`).toBeLessThanOrEqual(1)
   expect.soft(r.panels.length, `${label}: panels before a driver is picked (${r.panels.join(', ')})`).toBeLessThanOrEqual(5)
+  // #63: one gap, one row ("Hülkenberg ... 1.720s behind Lawson" and "Lawson ... 1.720s ahead of Hülkenberg" was one fact twice)
+  const gaps = r.momentTexts.flatMap((t) => t.match(/\d+\.\d{3}s (?:behind|ahead of)/g)?.map((g) => g.split(' ')[0]) ?? [])
+  expect.soft(gaps.filter((g, i) => gaps.indexOf(g) !== i), `${label}: the same gap in two key moments`).toEqual([])
+  // #64: a margin note about a driver says whose it is
+  const nameless = r.margin.filter(([who, text]) => who !== 'session' && !/\(.+\)/.test(text!)).map(([, t]) => t)
+  expect.soft(nameless, `${label}: margin notes without a driver`).toEqual([])
   const both = r.summary.filter((f) => r.moments.includes(f))
   expect.soft(both, `${label}: facts in both the summary and key moments`).toEqual([])
 }
@@ -267,11 +275,111 @@ test('a driver\'s race has its own page', async ({ page }) => {
   const top = async (l: Locator) => (await l.boundingBox())!.y
   expect(await top(story)).toBeLessThan(await top(page.getByRole('region', { name: 'Classification' })))
   await check(page, w, 'driver race page')
+  // BENCHMARKS row 17: the numbers behind each chart, as a table and a CSV
+  const positions = page.getByRole('region', { name: 'Race positions' })
+  await positions.scrollIntoViewIfNeeded()
+  await positions.getByText('The numbers').click()
+  expect(await positions.locator('[data-chart-table] tbody tr').count(), 'one row per driver in the positions table').toBeGreaterThanOrEqual(18)
+  await expect(positions.getByRole('link', { name: 'Download CSV' })).toHaveAttribute('download', 'positions.csv')
+  const vs = story.locator('[data-vs]')
+  await vs.getByText('The numbers').click()
+  expect(await vs.locator('[data-chart-table] tbody tr').count(), 'one row per lap in the gap table').toBeGreaterThan(10)
   // a tap on another driver shows their story: it replaces this one and scrolls into view
   await page.getByRole('region', { name: 'Classification' }).locator('tr[data-driver]', { hasText: 'OCO' }).click()
   const next = page.getByRole('region', { name: "Esteban Ocon's weekend" })
   await expect(next).toBeInViewport()
   await check(page, w, 'driver picked from the table')
+})
+
+test('a lap opens its sectors: from the chart, the picker and a shared link (BENCHMARKS row 21)', async ({ page }) => {
+  const w = watch(page)
+  // a shared link: Stroll's lap 20 at Singapore
+  await page.goto('race/17/driver/stroll?lap=20')
+  const positions = page.getByRole('region', { name: 'Race positions' })
+  await positions.scrollIntoViewIfNeeded()
+  const card = positions.locator('[data-lap-card="20"]')
+  await expect(card).toBeVisible()
+  // his line and his teammate's, each with three sectors
+  expect(await card.locator('[data-lap-driver]').count()).toBe(2)
+  expect(await card.locator('[data-lap-driver]').first().locator('tbody tr').count()).toBe(3)
+  await expect(card.locator('[data-lap-driver]').first()).toContainText(/S1.*\d/s)
+  await check(page, w, 'lap card from a link')
+  // the next lap, kept in the link
+  await card.getByRole('button', { name: 'Next lap' }).click()
+  await expect(positions.locator('[data-lap-card="21"]')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('lap')).toBe('21')
+  // the head-to-head gap chart picks a lap too, and shows it in the strip
+  const gapChart = page.locator('[data-vs] [data-gap-chart]')
+  const g = (await gapChart.boundingBox())!
+  await gapChart.click({ position: { x: g.width * 0.6, y: g.height / 2 } })
+  await expect(page.locator('[data-vs] [data-lap-card]')).toBeVisible()
+  // nobody picked: the picker shows the first three on that lap
+  await page.goto('race/17')
+  await page.getByRole('region', { name: 'Race positions' }).scrollIntoViewIfNeeded()
+  await page.getByRole('combobox', { name: 'Show a lap' }).selectOption('30')
+  const top3 = page.locator('[data-lap-card="30"] [data-lap-driver]')
+  await expect(top3).toHaveCount(3)
+  // a click on the chart picks the lap under the pointer
+  const chart = page.getByRole('region', { name: 'Race positions' }).locator('.recharts-wrapper').first()
+  const box = (await chart.boundingBox())!
+  await chart.click({ position: { x: box.width * 0.5, y: box.height * 0.5 } })
+  await expect(page.locator('[data-lap-card]')).toBeVisible()
+  expect(Number(new URL(page.url()).searchParams.get('lap'))).toBeGreaterThan(10)
+  await page.locator('[data-lap-card]').getByRole('button', { name: 'Close' }).click()
+  await expect(page.locator('[data-lap-card]')).toHaveCount(0)
+  await check(page, w, 'lap picked on the chart')
+})
+
+test('follow a driver: Follow on their panel puts them first on home', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('race/17/driver/stroll')
+  const story = page.getByRole('region', { name: "Lance Stroll's weekend" })
+  await story.getByRole('button', { name: 'Follow' }).click()
+  await expect(story.getByRole('button', { name: 'Following' })).toHaveAttribute('aria-pressed', 'true')
+  await page.goto('./')
+  const mine = page.getByRole('region', { name: 'The driver you follow' })
+  await expect(mine).toContainText('Lance Stroll')
+  await expect(mine.getByRole('link')).toHaveAttribute('href', /\/race\/\d+\/driver\/stroll$/)
+  // on the championship ladder too, after the top ten
+  await expect(page.locator('section[aria-label="Championship"] [data-followed]')).toContainText('Stroll')
+  await check(page, w, 'home, following a driver')
+  await mine.getByRole('button', { name: 'Stop following' }).click()
+  await expect(mine).toHaveCount(0)
+})
+
+test('spoiler-free mode hides the latest round until revealed', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('./')
+  const latest = page.getByRole('article', { name: 'Latest race' })
+  await expect(latest.locator('[data-moment-n], .num').first()).toBeVisible()
+  await page.getByRole('button', { name: /spoiler-free/i }).click()
+  await expect(page.getByRole('button', { name: /spoiler-free/i })).toHaveAttribute('aria-pressed', 'true')
+  // the latest plate keeps its circuit but not its podium; the standings wait too
+  await expect(latest.getByRole('button', { name: 'Show the result' })).toBeVisible()
+  await expect(page.locator('section[aria-label="Championship"] [data-spoiler-gate]')).toBeVisible()
+  await check(page, w, 'home, spoiler-free')
+  // the race page shows only its name and the button
+  await latest.getByRole('link').first().click()
+  const gate = page.getByRole('region', { name: 'Spoiler-free' })
+  await expect(gate).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Classification' })).toHaveCount(0)
+  await check(page, w, 'race page, spoiler-free')
+  await gate.getByRole('button', { name: 'Show the result' }).click()
+  await expect(page.getByRole('region', { name: 'Classification' })).toBeVisible()
+  // older rounds were never hidden
+  await page.goto('race/1')
+  await expect(page.getByRole('region', { name: 'Classification' })).toBeVisible()
+  await page.getByRole('button', { name: /spoiler-free/i }).click()
+  await expect(page.getByRole('button', { name: /spoiler-free/i })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('the changelog lists dated changes and is linked from every page', async ({ page }) => {
+  const w = watch(page)
+  await page.goto('./')
+  await page.getByRole('contentinfo').getByRole('link', { name: 'What changed' }).click()
+  await expect(page.locator('h1')).toHaveText('What changed')
+  expect(await page.locator('main time[datetime]').count()).toBeGreaterThan(3)
+  await check(page, w, 'changelog')
 })
 
 test('Expert mode shows the debrief and opens more detail, and survives a shared link', async ({ page }) => {

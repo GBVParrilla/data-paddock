@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, eventApi, TURNS_UNRELIABLE, type Driver, type SessionRow, type SessionType } from '../api/client'
 import { Boundary, NotFound } from '../components/Boundary'
 import { Classification } from '../components/Classification'
 import { DeepDive } from '../components/DeepDive'
 import { DriverStory } from '../components/DriverStory'
+import { LapCard } from '../components/LapCard'
 import { WhenVisible } from '../components/WhenVisible'
 import { circuitOverlay } from '../lib/circuitOverlay'
 import { RaceSheet } from '../components/race/RaceSheet'
@@ -12,12 +13,14 @@ import { KeyMoments } from '../components/race/KeyMoments'
 import { useFetch } from '../hooks/useFetch'
 import { useTitle } from '../hooks/useTitle'
 import { isRaceLike, SESSION_ORDER, SESSION_SHORT } from '../lib/f1'
+import { lapLines } from '../lib/lap'
 import { planSession } from '../lib/mentions'
 import { defaultVs, sessionOrder } from '../lib/compare'
 import { useSectorStats } from '../lib/sectors'
 import { positionsTitle } from '../lib/takeaways'
-import { slotColors } from '../lib/teamColors'
+import { slotColors, teamColor } from '../lib/teamColors'
 import { useMode } from '../state/mode'
+import { SpoilerGate, usePrefs } from '../state/prefs'
 import { useStore } from '../state/store'
 
 // the chart library is loaded only when the position chart scrolls into view
@@ -38,6 +41,7 @@ export function RaceWeekend() {
   const [search, setSearch] = useSearchParams()
   const { sessionId, driverIds, vsId, setEvent, setSession, selectDriver, setVs, clearDrivers } = useStore()
   const { expert } = useMode()
+  const { hidden } = usePrefs()
   const detailId = useId()
   const hydrated = useRef(false)
 
@@ -119,6 +123,29 @@ export function RaceWeekend() {
   const storyRef = useRef<HTMLDivElement>(null)
   const reveal = useRef(false)
   const pick = (id: number) => { reveal.current = true; selectDriver(id) }
+
+  // the lap drill-down (BENCHMARKS row 21): ?lap=N, shown under the chart it was picked on
+  const lap = Number(search.get('lap')) || null
+  const [lapFrom, setLapFrom] = useState<'positions' | 'gap'>('positions')
+  const setLap = (n: number | null, from?: 'positions' | 'gap') => {
+    if (from) setLapFrom(from)
+    setSearch((p) => { if (n) p.set('lap', String(n)); else p.delete('lap'); return p }, { replace: true })
+  }
+  // the lap rows load only once a lap is picked; the picker's laps come from the position data the page already has
+  const lapRows = useFetch((s) => api.lapTimes(sessionId!, s), [sessionId, ready && raceLike && lap != null], ready && raceLike && lap != null)
+  const lapList = useMemo(() => [...new Set((detail.data?.position_by_lap ?? []).map((r) => r.lap_number))].sort((a, b) => a - b), [detail.data])
+  const lapIds = (): number[] => {
+    if (mapFor) return [mapFor.id, ...(vsDriver && started ? [vsDriver.id] : [])]
+    // nobody picked: the first three on that lap
+    return (detail.data?.position_by_lap ?? []).filter((r) => r.lap_number === lap && r.position != null).sort((x, y) => x.position! - y.position!).slice(0, 3).map((r) => r.driver_id)
+  }
+  const lapCard = (from: 'positions' | 'gap') => {
+    if (lap == null || lapFrom !== from || !lapRows.data) return null
+    const ids = lapIds()
+    return <LapCard lap={lap} lines={lapLines(lapRows.data, ids, lap, detail.data?.stint_timeline ?? [])} drivers={drivers}
+      colors={mapFor ? [colors[0], colors[1]] : ids.map((id) => teamColor(drivers[String(id)]?.team))} laps={lapList}
+      cornerLap={mapFor ? turnDeltas.data?.lap_number : null} onLap={(n) => setLap(n)} />
+  }
   useEffect(() => {
     if (!reveal.current || !mapFor) return
     reveal.current = false
@@ -141,6 +168,22 @@ export function RaceWeekend() {
   useTitle(event.data ? `${event.data.name}${sessionLabel ? ` · ${sessionLabel}` : ''}${mapFor ? ` · ${mapFor.code}` : ''}` : null)
 
   if (!Number.isFinite(eventId) || event.error || (sessionsQ.error && !sessionsQ.loading)) return <NotFound what="race" />
+
+  // spoiler-free: a weekend the reader hasn't revealed shows its name and one button, nothing that gives a result away
+  if (event.data && hidden(event.data.round) && sessions.some((s) => s.ingestion.transforms)) {
+    return (
+      <div className="wrap pt-8">
+        <nav className="label mb-3" aria-label="Breadcrumb">
+          <Link to="/races" className="hover:text-[var(--text)]">{event.data.season_year} races</Link><span className="mx-2">/</span><span>Round {event.data.round}</span>
+        </nav>
+        <section className="sheet px-4 sm:px-6 py-8" aria-label="Spoiler-free">
+          <h1 className="h-feature">{event.data.name}</h1>
+          <p className="t2 mt-2 text-[13px]">{[event.data.circuit_name, event.data.country].filter(Boolean).join(', ')}</p>
+          <SpoilerGate className="mt-6" rounds={[event.data.round]} what="Spoiler-free mode is on, so this weekend's results are hidden." />
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="wrap pt-8" data-session={sessionId ?? undefined}>
@@ -183,7 +226,8 @@ export function RaceWeekend() {
               <Boundary label="The comparison">
                 <Suspense fallback={<div className="skeleton h-40 mx-5 mb-5" />}>
                   <VsStrip eventId={eventId} sessionId={sessionId} headline={headline.data} quali={quali.data?.qualifying ?? null} a={mapFor} b={vsDriver}
-                    colors={[colors[0], colors[1]]} cases={rc.data?.cases ?? []} onVs={setVs} onRead={pick} />
+                    colors={[colors[0], colors[1]]} cases={rc.data?.cases ?? []} onVs={setVs} onRead={pick}
+                  lap={raceLike && lapFrom === 'gap' ? lap : null} onLap={raceLike ? (n) => setLap(n, 'gap') : undefined} lapCard={lapCard('gap')} />
                 </Suspense>
               </Boundary>
             )}
@@ -225,10 +269,21 @@ export function RaceWeekend() {
             <Boundary label="The position chart">
               {detail.data && headline.data
                 ? <WhenVisible minHeight={360}><Suspense fallback={<div className="skeleton h-[360px]" />}>
-                    <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={mapFor ? [mapFor.id, ...(vsDriver && started ? [vsDriver.id] : [])] : []} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={pick} />
+                    <PositionChart rows={detail.data.position_by_lap} drivers={drivers} race={headline.data.race ?? []} selected={mapFor ? [mapFor.id, ...(vsDriver && started ? [vsDriver.id] : [])] : []} annotations={anns.data ?? []} pitStops={detail.data.pit_stops} stints={detail.data.stint_timeline} onSelect={pick}
+                      lap={lapFrom === 'positions' ? lap : null} onLap={(n) => setLap(n, 'positions')} />
                   </Suspense></WhenVisible>
                 : <div className="skeleton h-[420px]" />}
             </Boundary>
+            {lapList.length > 0 && (
+              <label className="flex items-center gap-2 text-[12.5px] t2 mt-1">
+                <span>Tap a lap on the chart, or pick one, for its sectors</span>
+                <select className="btn" aria-label="Show a lap" value={lapFrom === 'positions' && lap ? lap : ''} onChange={(e) => setLap(Number(e.target.value) || null, 'positions')}>
+                  <option value="">Lap</option>
+                  {lapList.map((n) => <option key={n} value={n}>Lap {n}</option>)}
+                </select>
+              </label>
+            )}
+            {lapCard('positions')}
           </div>
         </section>
       )}

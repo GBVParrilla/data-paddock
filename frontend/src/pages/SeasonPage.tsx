@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { api, type StandingRow } from '../api/client'
 import { Freshness } from '../components/Freshness'
@@ -8,20 +7,65 @@ import { useFetch } from '../hooks/useFetch'
 import { useTitle } from '../hooks/useTitle'
 import { STATUS_TEXT } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
+import { SpoilerGate, usePrefs } from '../state/prefs'
 import { useStore } from '../state/store'
 
 // one neutral ramp: wins brightest, podiums, then points finishes; the rest stay unfilled
-function cell(pos: number | null | undefined): { background: string; color: string; fontWeight: number } {
-  if (!pos) return { background: 'transparent', color: 'var(--text-3)', fontWeight: 400 }
-  if (pos === 1) return { background: 'var(--ink)', color: 'var(--paper)', fontWeight: 700 }
-  if (pos <= 3) return { background: 'var(--graphite)', color: 'var(--paper)', fontWeight: 600 }
-  if (pos <= 10) return { background: 'var(--panel-2)', color: 'var(--text)', fontWeight: 500 }
-  return { background: 'transparent', color: 'var(--text-3)', fontWeight: 400 }
+function cell(pos: number | null | undefined): string {
+  if (!pos) return 'rc-none'
+  if (pos === 1) return 'rc-win'
+  if (pos <= 3) return 'rc-podium'
+  if (pos <= 10) return 'rc-points'
+  return 'rc-none'
 }
 
 const fmtPts = (p: number) => (p % 1 ? p.toFixed(1) : String(p))
 
-/** Cumulative points for the top of the table: how the title fight actually developed. */
+/** Points through the season for the top six, as SVG paths (#61: the charting library made this page 70–80 on a
+ * phone). Hover or tap a round for everyone's total. */
+function PointsLines({ data, top, dashed, rounds, nameOf }: { data: Record<string, number>[]; top: StandingRow[]; dashed: boolean[]; rounds: number[]; nameOf: (r: number) => string }) {
+  const [at, setAt] = useState<number | null>(null)
+  const W = 640, H = 300, L = 34, R = 12, T = 8, B = 22
+  const max = Math.max(1, ...data.flatMap((p) => top.map((d) => p[d.driver_id] ?? 0)))
+  const nice = Math.ceil(max / 100) * 100 // gridlines on whole hundreds
+  const x = (i: number) => L + (i / Math.max(1, rounds.length - 1)) * (W - L - R)
+  const y = (v: number) => T + (1 - v / nice) * (H - T - B)
+  const pick = (e: React.PointerEvent<SVGSVGElement>) => {
+    const box = e.currentTarget.getBoundingClientRect()
+    const vx = ((e.clientX - box.left) / box.width) * W
+    setAt(Math.max(0, Math.min(rounds.length - 1, Math.round(((vx - L) / (W - L - R)) * (rounds.length - 1)))))
+  }
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(nice * f))
+  const point = at != null ? data[at] : undefined
+  return (
+    <div className="relative h-full min-h-[300px]">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[300px]" preserveAspectRatio="none" role="img" onPointerMove={pick} onPointerLeave={() => setAt(null)}
+        aria-label={`Points after each round for ${top.map((d) => d.code).join(', ')}`}>
+        {grid.map((g) => <line key={g} x1={L} x2={W - R} y1={y(g)} y2={y(g)} stroke="var(--line)" vectorEffect="non-scaling-stroke" />)}
+        {at != null && <line x1={x(at)} x2={x(at)} y1={T} y2={H - B} stroke="var(--line-2)" vectorEffect="non-scaling-stroke" />}
+        {top.map((d, i) => (
+          <path key={d.driver_id} d={data.map((p, k) => `${k ? 'L' : 'M'}${x(k).toFixed(1)},${y(p[d.driver_id] ?? 0).toFixed(1)}`).join('')}
+            fill="none" stroke={teamColor(d.team)} strokeWidth={2} strokeDasharray={dashed[i] ? '5 4' : undefined} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        ))}
+      </svg>
+      <div className="absolute inset-y-0 left-0 w-8 text-[11px] t3 num pointer-events-none" aria-hidden="true">
+        {grid.map((g) => <span key={g} className="absolute -translate-y-1/2" style={{ top: `${(y(g) / H) * 300}px` }}>{g}</span>)}
+      </div>
+      <div className="relative h-4 text-[11px] t3 num pointer-events-none" aria-hidden="true">
+        {rounds.map((r, k) => (k % Math.ceil(rounds.length / 12) === 0 || k === rounds.length - 1) && <span key={r} className="absolute -translate-x-1/2" style={{ left: `${(x(k) / W) * 100}%` }}>R{r}</span>)}
+      </div>
+      {point && at != null && (
+        <div className="tip num absolute top-2 pointer-events-none" style={{ left: `min(calc(${(x(at) / W) * 100}% + 10px), calc(100% - 10rem))` }}>
+          <div className="label mb-1">{nameOf(rounds[at])}</div>
+          {[...top].sort((a, b) => (point[b.driver_id] ?? 0) - (point[a.driver_id] ?? 0)).map((d) => (
+            <div key={d.driver_id} className="flex items-center gap-2"><span className="swatch h-3" style={{ background: teamColor(d.team) }} /><span className="w-9">{d.code}</span><span className="ml-auto">{fmtPts(point[d.driver_id] ?? 0)}</span></div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TitleFight({ rows, rounds, nameOf }: { rows: StandingRow[]; rounds: number[]; nameOf: (r: number) => string }) {
   const top = rows.slice(0, 6)
   const data = useMemo(() => {
@@ -48,25 +92,7 @@ function TitleFight({ rows, rounds, nameOf }: { rows: StandingRow[]; rounds: num
         </div>
       </div>
       <div className="panel-body flex-1 min-h-[300px]">
-        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="var(--line)" vertical={false} />
-            <XAxis dataKey="round" tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--line)' }} tickFormatter={(r) => `R${r}`} />
-            <YAxis width={34} tick={{ fill: 'var(--text-3)', fontSize: 11 }} tickLine={false} axisLine={false} />
-            <Tooltip isAnimationActive={false} cursor={{ stroke: 'var(--line-2)' }} content={({ active, payload, label }) => active && payload?.length ? (
-              <div className="tip num">
-                <div className="label mb-1">{nameOf(Number(label))}</div>
-                {[...payload].sort((a, b) => Number(b.value) - Number(a.value)).map((p) => {
-                  const d = top.find((t) => String(t.driver_id) === String(p.dataKey))!
-                  return <div key={d.driver_id} className="flex items-center gap-2"><span className="swatch h-3" style={{ background: teamColor(d.team) }} /><span className="w-9">{d.code}</span><span className="ml-auto">{fmtPts(Number(p.value))}</span></div>
-                })}
-              </div>
-            ) : null} />
-            {top.map((d, i) => (
-              <Line key={d.driver_id} dataKey={String(d.driver_id)} stroke={teamColor(d.team)} strokeWidth={2} strokeDasharray={dashed[i] ? '5 4' : undefined} dot={false} isAnimationActive={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--panel)' }} />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+        <PointsLines data={data} top={top} dashed={dashed} rounds={rounds} nameOf={nameOf} />
       </div>
     </section>
   )
@@ -128,8 +154,12 @@ export function SeasonPage() {
   const st = useFetch((s) => api.standings(year, s), [year], !!year)
   const events = useFetch((s) => api.events(year, s), [year], !!year)
   const rounds = st.data?.rounds ?? []
+  // the season grid (about 400 cells) renders at low priority, in slices, after the chart and leader (#61)
+  const grid = useDeferredValue(st.data)
   const nameOf = (r: number) => events.data?.find((e) => e.round === r)?.name.replace(' Grand Prix', '') ?? `Round ${r}`
   const pickedDriver: StandingRow | undefined = pick?.type === 'driver' ? st.data?.drivers.find((d) => String(d.driver_id) === pick.id) : undefined
+  const { hidden } = usePrefs()
+  const secret = rounds.filter((r) => hidden(r))
 
   return (
     <div className="wrap pt-10">
@@ -145,7 +175,8 @@ export function SeasonPage() {
         </div>
       </div>
 
-      {st.data && view === 'drivers' && st.data.drivers.length > 0 && (
+      {secret.length > 0 && <SpoilerGate className="mb-6" rounds={secret} what={`Spoiler-free mode is on: the standings include round ${secret[0]}.`} />}
+      {secret.length === 0 && st.data && view === 'drivers' && st.data.drivers.length > 0 && (
         <div className="grid lg:grid-cols-12 gap-4 mb-4">
           <TitleFight rows={st.data.drivers} rounds={rounds} nameOf={nameOf} />
           <Leader rows={st.data.drivers} rounds={rounds} />
@@ -161,7 +192,7 @@ export function SeasonPage() {
       {st.error && <p className="t2">{st.error.message}</p>}
       {st.loading && <div className="panel skeleton h-[600px]" />}
 
-      {st.data && view === 'drivers' && (
+      {secret.length === 0 && grid && view === 'drivers' && (
         <section className="panel overflow-x-auto" aria-label="Driver standings">
           <table className="tbl">
             <thead>
@@ -171,7 +202,7 @@ export function SeasonPage() {
               </tr>
             </thead>
             <tbody>
-              {st.data.drivers.map((d) => {
+              {grid.drivers.map((d) => {
                 const on = pick?.type === 'driver' && pick.id === String(d.driver_id)
                 return (
                   <tr key={d.driver_id} className="clickable" aria-selected={on} onClick={() => setPick({ type: 'driver', id: String(d.driver_id) })}>
@@ -192,12 +223,11 @@ export function SeasonPage() {
                       const code = res && !p ? res.status : null
                       const elsewhere = res?.team && res.team !== d.team
                       const what = !res ? 'did not take part' : p ? `P${p}${code === 'DNF' ? ' (retired, classified)' : ''}` : res.status ? STATUS_TEXT[res.status] : 'no result'
+                      // one element per cell, styled by class: 400 of these made the page's longest task (#61)
                       return (
-                        <td key={r} className="!px-0.5">
-                          <div className="h-6 w-7 mx-auto flex items-center justify-center num" title={`${nameOf(r)}: ${what}${elsewhere ? ` · for ${res!.team}` : ''}`}
-                            style={{ ...cell(p), fontSize: code ? 8.5 : 11, letterSpacing: code ? '-0.02em' : undefined, boxShadow: elsewhere ? `inset 0 -2px 0 ${teamColor(res!.team)}` : undefined }}>
-                            {p ?? code ?? ''}
-                          </div>
+                        <td key={r} className={`rc ${cell(p)}${code ? ' rc-code' : ''}`} title={`${nameOf(r)}: ${what}${elsewhere ? ` · for ${res!.team}` : ''}`}
+                          style={elsewhere ? { boxShadow: `inset 0 -2px 0 ${teamColor(res!.team)}` } : undefined}>
+                          {p ?? code ?? ''}
                         </td>
                       )
                     })}
@@ -209,7 +239,7 @@ export function SeasonPage() {
         </section>
       )}
 
-      {st.data && view === 'teams' && (
+      {secret.length === 0 && st.data && view === 'teams' && (
         <section className="panel" aria-label="Constructor standings">
           <table className="tbl">
             <thead><tr><th className="w-10">Pos</th><th>Team</th><th className="w-1/2" /><th className="r">Pts</th></tr></thead>

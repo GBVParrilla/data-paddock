@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 from ..models import ComparisonNarrative, DetailPositionByLap, DetailStintTimeline, Driver, Lap, Session
 from ..util import fmt_ms, utcnow
 from .jobs import StoryJob
+from ..config import COMPARISON_PROMPT_VERSION
 from .llm import stable_hash
 from .prompts import SCHEMA_COMPARISON, SYSTEM_COMPARISON
 
@@ -68,6 +69,35 @@ def _existing(db: OrmSession, session_id: int, a: int, b: int) -> ComparisonNarr
 LIMITS = {"comparison_text": 175}
 
 
+def _seconds(t: str | None) -> float | None:
+    if not t:
+        return None
+    m, _, sec = t.rpartition(":")
+    return (int(m) * 60 if m else 0) + float(sec)
+
+
+def _ranks(sectors: dict | None) -> dict[str, str]:
+    return {k: f"{v['rank']} of {v['of']}" for k, v in (sectors or {}).items() if isinstance(v, dict) and v.get("rank") and v.get("of")}
+
+
+def _sector_gaps(sa: dict | None, sb: dict | None, na: str, nb: str) -> list[str]:
+    """'Sector 1: Alonso quicker by 0.143s', one line per sector both drivers set a time in."""
+    out = []
+    for k in ("sector_1", "sector_2", "sector_3"):
+        ta, tb = _seconds((sa or {}).get(k, {}).get("best")), _seconds((sb or {}).get(k, {}).get("best"))
+        if ta is None or tb is None:
+            continue
+        label = k.replace("_", " ").capitalize()
+        out.append(f"{label}: level" if round(ta, 3) == round(tb, 3) else f"{label}: {na if ta < tb else nb} quicker by {abs(ta - tb):.3f}s")
+    return out
+
+
+def prompt_pair(pair: dict[str, Any]) -> dict[str, Any]:
+    """What Claude sees: each driver's sector ranks and the gaps between them, not the raw sector times (which the
+    checker keeps, so stories written before #65 still verify)."""
+    return {**pair, "drivers": {n: {k: v for k, v in d.items() if k != "sectors"} for n, d in pair["drivers"].items()}}
+
+
 def build_pair_facts(db: OrmSession, session_id: int, a: int, b: int) -> dict[str, Any]:
     """Two drivers in one session: both results, how they compared, and any incident they shared."""
     from ..analysis.race_control import cases, parse_messages
@@ -83,9 +113,11 @@ def build_pair_facts(db: OrmSession, session_id: int, a: int, b: int) -> dict[st
     pair: dict[str, Any] = {
         "meta": fa["meta"],
         "drivers": {
-            na: {"team": fa["driver"]["team"], "result": fa.get("result_headline"), "sectors": fa.get("sectors")},
-            nb: {"team": fb["driver"]["team"], "result": fb.get("result_headline"), "sectors": fb.get("sectors")},
+            na: {"team": fa["driver"]["team"], "result": fa.get("result_headline"), "sector_ranks": _ranks(fa.get("sectors")), "sectors": fa.get("sectors")},
+            nb: {"team": fb["driver"]["team"], "result": fb.get("result_headline"), "sector_ranks": _ranks(fb.get("sectors")), "sectors": fb.get("sectors")},
         },
+        # who was quicker in each sector and by how much, rather than both times: the stories read raw times aloud (#65)
+        "sector_gaps": _sector_gaps(fa.get("sectors"), fb.get("sectors"), na, nb),
         "teammates": fa["driver"]["team"] == fb["driver"]["team"],
         "verdicts": [], "insufficient_data": [],
     }
@@ -136,8 +168,10 @@ def build_pair_facts(db: OrmSession, session_id: int, a: int, b: int) -> dict[st
     cards = event_drivers(db, session.event_id)
     numbers = {c["number"]: i for i, c in cards.items() if c.get("number") is not None}
     shared = [c for c in cases(parse_messages(db.scalars(select(RaceControl).where(RaceControl.session_id == session_id)).all(), numbers)) if {a, b} <= set(c["driver_ids"])]
-    pair["shared_incidents"] = [{"lap": c["opened_lap"], "turn": c["turn"], "reason": c["reason"], "outcome": c["outcome"] or ("investigated after the race" if c["after_race"] else "noted")} for c in shared]
-    for c in pair["shared_incidents"]:
+    incidents = [{"lap": c["opened_lap"], "turn": c["turn"], "reason": c["reason"], "outcome": c["outcome"] or ("investigated after the race" if c["after_race"] else "noted")} for c in shared]
+    if incidents:  # an empty list only invited "No shared incidents were recorded" (#65)
+        pair["shared_incidents"] = incidents
+    for c in incidents:
         v.append(f"The stewards looked at an incident between them{' at turn ' + str(c['turn']) if c['turn'] else ''}{' on lap ' + str(c['lap']) if c['lap'] else ''}: {c['outcome']}.")
     return pair
 
@@ -178,7 +212,7 @@ def plan_comparison_narrative(db: OrmSession, session_id: int, driver_a: int, dr
 
     a, b = sorted((driver_a, driver_b))
     pair = build_pair_facts(db, session_id, a, b)
-    h = stable_hash(pair)
+    h = stable_hash({"comparison_prompt": COMPARISON_PROMPT_VERSION, **pair})
     existing = _existing(db, session_id, a, b)
     if existing and existing.input_hash == h and not force:
         return existing, None
@@ -196,7 +230,7 @@ def plan_comparison_narrative(db: OrmSession, session_id: int, driver_a: int, dr
         db.flush()
         return row
 
-    user = "HEAD-TO-HEAD FACTS (JSON):\n" + json.dumps(pair, indent=1, default=str, ensure_ascii=False)
+    user = "HEAD-TO-HEAD FACTS (JSON):\n" + json.dumps(prompt_pair(pair), indent=1, default=str, ensure_ascii=False)
     sheet = {**pair, "driver": {"teammate": " and ".join(pair["drivers"]) if pair["teammates"] else None}}
     job = StoryJob(f"comparison session={session_id} {a} vs {b}", SYSTEM_COMPARISON, user, SCHEMA_COMPARISON, save,
                    check=lambda data: check_story(data, sheet, roster=ctx["roster"], entrants=ctx["entrants"], limits=LIMITS),

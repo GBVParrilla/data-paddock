@@ -30,5 +30,5 @@ The round 3 brief is `docs/LONG_RUN_PROMPT_ROUND3.md` and the review is `docs/RE
 - Never ask questions. Record each call under "Decisions made" in the PR and in PROGRESS.md.
 
 ## Next steps
-1. Full-season run done (99.1% Claude). Live crawl green; scorecard 85/100 (every A row at 2); personas 7–8. #62 PR open (driver story under the sheet). Next: #63, #64, then the small PRs (spoiler-free, follow a driver, changelog) and #61.
+1. Full-season run done (99.1% Claude). Live audit: scorecard 85/100, personas 7–8. #62 merged (PR #14). PR #15 open with four commits: #63–#65 + chart tables; lap drill-down; spoiler-free, follow, changelog; #61 performance (every page 90+ on mobile). After it merges: the owner's head-to-head rewrite run (stories-only, max_new_stories 1000), then re-crawl live and re-score the scorecard and personas.
 2. Meanwhile: re-score the BENCHMARKS §7 scorecard and the five personas (light and dark), then the small PRs (spoiler-free mode, follow a driver, changelog).

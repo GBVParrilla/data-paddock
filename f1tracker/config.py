@@ -41,6 +41,7 @@ FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "clau
 NARRATIVE_MAX_TOKENS = 16000  # thinking counts toward it; ~1k is typical, but a few stories need much more
 # Bump when prompts change so cached narratives regenerate.
 PROMPT_VERSION = "6"  # 6: no weather, no non-events, no "pass" for a pit-stop lead change (pilot 2); 5: round 3 pilot slips (sector "perfect"/"slowest", incidents after a retirement); 4: Essential only (Expert is the code-written debrief), headline variety, round 3 checks; 3: verdict candidates, Essential/Expert, worked examples (round 2); 2: fact sheets, fact-checked
+COMPARISON_PROMPT_VERSION = "2"  # head-to-heads only, so a change rewrites the head-to-heads and nothing else; 2: no sector or lap times read out, no non-events (#65)
 
 # --- Story pipeline + human edits ----------------------------------------------
 # Stories are written by the pipeline right after a session is processed, stored in the DB,

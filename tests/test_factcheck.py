@@ -253,3 +253,15 @@ def test_top_half_must_fit_the_position():
     race = {**SHEET, "result": {"grid": 17, "finish": 10}}
     assert not any("doesn't fit" in str(v) for v in check_story(_story(essential="He started from the back half of the grid."), race, roster=ROSTER, entrants=ENTRANTS))
     assert not any("doesn't fit" in str(v) for v in check_story(_story(essential="He was in the bottom half of the field in all three sectors."), quali, roster=ROSTER, entrants=ENTRANTS))
+
+
+def test_head_to_heads_dont_read_out_times_or_non_events():
+    # Stroll vs Alonso R17 (full-season run)
+    limits = {"comparison_text": 175}
+    bad = {"Alonso was quicker in every sector: 29.139 against 29.282 in sector 1.": "read out", "Their strategies differed. No shared incidents were recorded.": "didn't happen"}
+    for text, why in bad.items():
+        assert any(why in str(v) for v in check_story({"comparison_text": text}, SHEET, roster=ROSTER, entrants=ENTRANTS, limits=limits)), text
+    ok = check_story({"comparison_text": "Alonso was quicker in every sector, by 0.143s in sector 1."}, SHEET, roster=ROSTER, entrants=ENTRANTS, limits=limits)
+    assert not any("read out" in str(v) or "didn't happen" in str(v) for v in ok)
+    # published stories are re-checked for truth only
+    assert not any("read out" in str(v) for v in check_story({"comparison_text": next(iter(bad))}, SHEET, roster=ROSTER, entrants=ENTRANTS, limits=limits, style=False))
