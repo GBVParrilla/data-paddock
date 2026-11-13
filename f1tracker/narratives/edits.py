@@ -267,7 +267,7 @@ def _verified(out: dict[str, Any], field: str, model_used: str, facts: dict, she
     out.pop("input_hash", None)
     if out["edited"]:
         return out
-    problems = [] if model_used == "template" else [str(v) for v in check_story({field: out[field]}, sheet, roster=ctx["roster"], entrants=ctx["entrants"], limits=limits)]
+    problems = [] if model_used == "template" else [str(v) for v in check_story({field: out[field]}, sheet, roster=ctx["roster"], entrants=ctx["entrants"], limits=limits, style=False)]
     if problems or model_used == "template":
         out[field] = template(facts)[field]
         out["source"] = "template"

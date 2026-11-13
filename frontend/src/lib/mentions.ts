@@ -152,11 +152,16 @@ export function planSession(h: Headline, moments: PivotalMoment[], spot: Midfiel
   const kept = [...remaining].sort(byWeight).slice(0, MAX_ROWS)
   for (const m of kept) said.claim(factOf(m), [m.driver_id, m.related_driver_id])
   const midfield: MidfieldItem[] = []
+  // the drivers a line names, so "Hülkenberg finished P8, 1.720s behind Lawson" also counts as mentioning Lawson (#63)
+  const namedIn = (text: string) => Object.values(h.drivers).filter((d) => text.includes(d.name)).map((d) => d.id)
   const fresh = candidates.filter((c) => c.driver_id !== lead && !said.mentioned(c.driver_id) && !said.said(spotFact(c)))
   // midfield items fill spare rows; they never push out a moment that decided the session
-  for (const c of fresh.slice(0, Math.min(2, MAX_ROWS - kept.length))) {
-    midfield.push({ driver_id: c.driver_id, text: midfieldText(c.driver, c.reason), fact: spotFact(c) })
-    said.claim(spotFact(c), [c.driver_id])
+  for (const c of fresh) {
+    if (midfield.length >= Math.min(2, MAX_ROWS - kept.length)) break
+    if (said.mentioned(c.driver_id)) continue
+    const text = midfieldText(c.driver, c.reason)
+    midfield.push({ driver_id: c.driver_id, text, fact: spotFact(c) })
+    said.claim(spotFact(c), [c.driver_id, ...namedIn(text)])
   }
   // ...unless nobody beyond the podium is named yet: the mission stays visible on every race and sprint
   const podium = new Set((h.race ?? []).filter((r) => r.finish_position && r.finish_position <= 3).map((r) => r.driver_id))

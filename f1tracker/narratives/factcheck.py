@@ -67,8 +67,9 @@ UNDONE = re.compile(r"\b(undone|undid|ruined|wrecked|derailed|spoiled|thrown awa
 RE_ESSENTIAL_DATA = re.compile(r"\b\d+(?:st|nd|rd|th)(?: of \d+)? in (?:sector|s)\s?[123]\b|\b(?:sector|s)\s?[123] (?:rank|ranked)\b|\d+\.\d+s (?:in|through) the pit ?lane\b", re.I)
 # sentences about what didn't happen to him: filler in a short story (prompt v5 pilot: "No incidents or safety
 # periods were recorded for him", "The stop came away from any Virtual Safety Car period")
-NON_EVENT = re.compile(r"\bno (incidents?|safety (car )?periods?|safety cars?|penalt(y|ies)|investigations?)\b[^.]*\b(recorded|reported|noted|involv\w*)\b|"
+NON_EVENT = re.compile(r"\bno (?:shared |other |further )?(incidents?|safety (car )?periods?|safety cars?|penalt(y|ies)|investigations?)\b[^.]*\b(recorded|reported|noted|involv\w*)\b|"
                        r"\baway from any\b|\bwas not (affected|involved)\b|\bnothing (else )?(happened|of note)\b|\brain was reported\b", re.I)
+TIMES_READ_OUT = re.compile(r"\b\d{1,2}\.\d{3}\b(?!s)[^.]*?\b(?:against|to|and|vs)\b[^.]*?\b\d{1,2}\.\d{3}\b(?!s)")  # "29.139 against 29.282"
 PASS_WORD = re.compile(r"\b(pass|passed|passes|passing|overtak\w*)\b", re.I)
 RECOVERY = re.compile(r"\b(recover\w*|won back|despite|still|yet|but|anyway|regardless)\b", re.I)
 
@@ -437,7 +438,13 @@ def check_story(data: dict, sheet: dict, *, roster: dict[str, str], entrants: se
         if section in ("headline", "essential", "arc_text"):  # Essential and arcs never talk about missing data
             out += check_missing_data(section, text)
     if limits is not None:
-        return out + check_hedging("story", " ".join(str(data.get(k) or "") for k in limits), sheet)
+        text = " ".join(str(data.get(k) or "") for k in limits)
+        if style and "comparison_text" in limits:  # head-to-heads (#65): Stroll vs Alonso R17 read out three pairs of sector times
+            if TIMES_READ_OUT.search(text):
+                out.append(Violation("comparison_text", f"don't read out times (\"{TIMES_READ_OUT.search(text).group()}\"): say who was quicker, with the sector rank or the gap"))
+            if NON_EVENT.search(text):
+                out.append(Violation("comparison_text", f"leave out what didn't happen (\"{NON_EVENT.search(text).group()}\"): every sentence should say something that did"))
+        return out + check_hedging("story", text, sheet)
     essential = data.get("essential") or ""
     if LAP_TIME.search(essential):
         out.append(Violation("essential", "no lap times in essential: it is for a new fan"))

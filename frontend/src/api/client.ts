@@ -113,6 +113,8 @@ export interface Headline {
   practice?: HeadlinePractice[]; qualifying?: HeadlineQualifying[]; race?: HeadlineRace[]; counts?: RaceCounts
 }
 export interface SectorDelta { session_id: number; driver_id: number; lap_number: number; sector: 1 | 2 | 3; driver_sector_ms: number | null; session_best_sector_ms: number | null; delta_ms: number | null }
+/** One lap: [lap number, lap time, sector 1, sector 2, sector 3 (ms, null when not timed), 1 for a pit in- or out-lap] */
+export type LapRow = [number, number, number | null, number | null, number | null, 0 | 1]
 export interface PositionByLap { session_id: number; driver_id: number; lap_number: number; position: number | null }
 export interface StintRow { session_id: number; driver_id: number; stint_number: number; compound: string | null; lap_start: number | null; lap_end: number | null }
 export interface PitStopRow { id: number; session_id: number; driver_id: number; lap_number: number; duration_ms: number | null; lane_duration_ms: number | null }
@@ -200,6 +202,7 @@ export const api = {
       `seasons/${season}/arc/${subjectType}/${subjectType === 'team' ? slug(subjectId) : subjectId}`, STORY_NOT_WRITTEN,
     ),
   pivotalMoments: (sessionId: number, s?: AbortSignal) => get<PivotalMoment[]>(`/sessions/${sessionId}/pivotal-moments`, s),
+  lapTimes: (sessionId: number, s?: AbortSignal) => get<Record<string, LapRow[]>>(`/sessions/${sessionId}/lap-times`, s),
   chartAnnotations: (sessionId: number, s?: AbortSignal) => get<ChartAnnotation[]>(`/sessions/${sessionId}/chart-annotations`, s),
   raceControl: (sessionId: number, s?: AbortSignal) => get<RaceControl>(`/sessions/${sessionId}/race-control`, s),
   midfieldSpotlight: (sessionId: number, generate: boolean, s?: AbortSignal) =>
@@ -259,7 +262,7 @@ async function staticCompare(sessionId: number, a: number, b: number, s?: AbortS
   const [headline, detail, laps, stories] = await Promise.all([
     get<Headline>(`/sessions/${sessionId}/headline`, s),
     staticDetail(sessionId, s),
-    get<Record<string, [number, number][]>>(`/sessions/${sessionId}/lap-times`, s),
+    get<Record<string, LapRow[]>>(`/sessions/${sessionId}/lap-times`, s),
     get<Record<string, ComparisonNarrative>>(`/sessions/${sessionId}/comparisons`, s),
   ])
   const side = (id: number): CompareDriver => {
@@ -270,7 +273,8 @@ async function staticCompare(sessionId: number, a: number, b: number, s?: AbortS
       stints: detail.stint_timeline.filter((r) => r.driver_id === id).map((r) => ({ stint: r.stint_number, compound: r.compound, lap_start: r.lap_start, lap_end: r.lap_end })),
     }
   }
-  const ta = new Map(laps[String(a)] ?? []), tb = new Map(laps[String(b)] ?? [])
+  const times = (id: number) => new Map((laps[String(id)] ?? []).map((r) => [r[0], r[1]] as const))
+  const ta = times(a), tb = times(b)
   let cum = 0
   const gap_over_time = [...ta.keys()].filter((lap) => tb.has(lap)).sort((x, y) => x - y).map((lap) => {
     cum += ta.get(lap)! - tb.get(lap)!

@@ -10,7 +10,9 @@ const RaceWeekend = lazy(() => import('./pages/RaceWeekend').then((m) => ({ defa
 const SeasonPage = lazy(() => import('./pages/SeasonPage').then((m) => ({ default: m.SeasonPage })))
 const RacesPage = lazy(() => import('./pages/RacesPage').then((m) => ({ default: m.RacesPage })))
 const MethodsPage = lazy(() => import('./pages/MethodsPage').then((m) => ({ default: m.MethodsPage })))
+const ChangesPage = lazy(() => import('./pages/ChangesPage').then((m) => ({ default: m.ChangesPage })))
 import { ModeProvider } from './state/mode'
+import { PrefsProvider } from './state/prefs'
 import { StoreProvider } from './state/store'
 
 // Path routes. On GitHub Pages every shareable page is prerendered as its own HTML shell and
@@ -56,6 +58,7 @@ export default function App() {
       <BrowserRouter basename={BASENAME}>
         <ScrollTop />
         <ModeProvider>
+        <PrefsProvider>
           <Shell>
             <PageBoundary>
               <Suspense fallback={<div className="wrap pt-10" aria-busy="true"><p className="label">Loading the page…</p><div className="skeleton h-10 w-72 mt-3" /><div className="skeleton h-64 mt-6" /></div>}>
@@ -67,11 +70,13 @@ export default function App() {
                 <Route path="/season/:year" element={<SeasonPage />} />
                 <Route path="/season/" element={<Home />} />
                 <Route path="/methods" element={<MethodsPage />} />
+                <Route path="/changes" element={<ChangesPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               </Suspense>
             </PageBoundary>
           </Shell>
+        </PrefsProvider>
         </ModeProvider>
       </BrowserRouter>
     </StoreProvider>

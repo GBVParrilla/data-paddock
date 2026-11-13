@@ -8,16 +8,19 @@ import { useTitle } from '../hooks/useTitle'
 import { useFetch } from '../hooks/useFetch'
 import { shortDate } from '../lib/f1'
 import { teamColor } from '../lib/teamColors'
+import { SpoilerGate, usePrefs } from '../state/prefs'
 import { useStore } from '../state/store'
 
 
 /** A round drawn as a plate from the atlas: the circuit large in the winner's team colour, the race name, the podium.
  * The latest round also carries its midfield story. */
 function CircuitPlate({ event, latest }: { event: Event; latest?: boolean }) {
+  const { hidden } = usePrefs()
+  const secret = hidden(event.round)
   const sessions = useFetch((s) => api.sessions(event.id, s), [event.id], !!latest)
   const race = sessions.data?.find((s) => s.session_type === 'R')
   const spot = useFetch((s) => api.midfieldSpotlight(race!.id, false, s), [race?.id], !!latest && !!race)
-  const color = event.winner ? teamColor(event.winner.team) : 'var(--text-3)'
+  const color = event.winner && !secret ? teamColor(event.winner.team) : 'var(--text-3)'
   return (
     <article className="sheet p-4 sm:p-5 flex flex-col min-w-0 w-full" aria-label={latest ? 'Latest race' : `${event.name}, round ${event.round}`}>
       <span className="reg-tr" aria-hidden="true" /><span className="reg-bl" aria-hidden="true" />
@@ -31,9 +34,10 @@ function CircuitPlate({ event, latest }: { event: Event; latest?: boolean }) {
             : <span className="label">The map appears once the weekend runs</span>}
         </div>
         <h2 className={`display ${latest ? 'text-[26px]' : 'text-[17px]'} leading-tight group-hover:underline underline-offset-4`}>{event.name}</h2>
-        {event.podium?.length ? <div className="mt-2"><PodiumChips podium={event.podium} /></div> : null}
+        {event.podium?.length && !secret ? <div className="mt-2"><PodiumChips podium={event.podium} /></div> : null}
       </Link>
-      {latest && (spot.loading || sessions.loading || spot.data) && (
+      {secret && event.podium?.length ? <SpoilerGate className="mt-2" rounds={[event.round]} what="Result hidden." /> : null}
+      {latest && !secret && (spot.loading || sessions.loading || spot.data) && (
         <div className="mt-4 pt-3 border-t min-h-[4.6rem]" style={{ borderColor: 'var(--line)' }}>
           {spot.data && <>
             <div className="kicker flex items-center gap-2"><span className="swatch h-3.5" style={{ background: teamColor(spot.data.team) }} />Midfield story</div>
@@ -47,8 +51,13 @@ function CircuitPlate({ event, latest }: { event: Event; latest?: boolean }) {
 
 /** The championship as a gap ladder: each driver's distance to the leader, drawn to scale. */
 function Championship({ year }: { year: number }) {
+  const { hidden, followed } = usePrefs()
   const st = useFetch((s) => api.standings(year, s), [year])
-  const rows = st.data?.drivers.slice(0, 10) ?? []
+  const secret = (st.data?.rounds ?? []).filter((r) => hidden(r))
+  const top = st.data?.drivers.slice(0, 10) ?? []
+  // the driver you follow is always on the ladder, after the top ten if need be
+  const mine = followed ? st.data?.drivers.find((d) => d.driver_id === followed.id) : undefined
+  const rows = mine && !top.includes(mine) ? [...top, mine] : top
   const lead = rows[0]?.points ?? 0
   const maxGap = Math.max(1, ...rows.map((d) => lead - d.points))
   const pts = (p: number) => (p % 1 ? p.toFixed(1) : String(p))
@@ -58,11 +67,13 @@ function Championship({ year }: { year: number }) {
         <h2 className="h2">Drivers' championship</h2>
         {st.data && <span className="label">after round {st.data.rounds.length}</span>}
       </div>
-      <ol className="mt-4 flex-1" aria-label="Gap to the leader">
+      {secret.length > 0 && <SpoilerGate className="mt-4" rounds={secret} what={`The standings include round ${secret[0]}.`} />}
+      <ol className={`mt-4 flex-1 ${secret.length ? 'hidden' : ''}`} aria-label="Gap to the leader">
         {rows.map((d, i) => {
           const gap = lead - d.points
           return (
-            <li key={d.driver_id} className="grid grid-cols-[1.5rem_minmax(0,7.5rem)_1fr_3.5rem] items-center gap-2 h-8 border-t first:border-t-0" style={{ borderColor: 'var(--line)' }}>
+            <li key={d.driver_id} className={`grid grid-cols-[1.5rem_minmax(0,7.5rem)_1fr_3.5rem] items-center gap-2 h-8 border-t first:border-t-0 ${d === mine ? 'font-semibold' : ''}`} style={{ borderColor: d === mine && i >= 10 ? 'var(--ink)' : 'var(--line)' }}
+              aria-current={d === mine ? 'true' : undefined} data-followed={d === mine || undefined}>
               <span className="num t3 text-[13px]">{d.position}</span>
               <span className="text-[13px] font-medium truncate flex items-center gap-2"><span className="swatch h-3.5" style={{ background: teamColor(d.team) }} />{d.name.split(' ').slice(-1)[0]}</span>
               <span className="relative h-full" aria-hidden="true">
@@ -105,6 +116,7 @@ export function Home() {
 
       <div className="grid lg:grid-cols-12 gap-x-10 gap-y-10">
         <section className="lg:col-span-8 min-w-0" aria-label="Results">
+          {year !== null && <YourDriver year={year} events={all} />}
           <div className="grid sm:grid-cols-3 gap-5">
             {latest4.map((e, i) => <div key={e.id} className={i === 0 ? 'sm:col-span-3' : 'flex'}><CircuitPlate event={e} latest={i === 0} /></div>)}
             {/* placeholders the plates' own size, so nothing below them moves when they arrive */}
@@ -142,4 +154,31 @@ function MidfieldLine({ driver, reason }: { driver: string; reason: string }) {
   const first = reason.split('. ')[0].replace(/\.$/, '')
   if (first.startsWith(driver)) return <p className="mt-2 text-[14px] t2"><span className="font-semibold" style={{ color: 'var(--text)' }}>{driver}</span>{first.slice(driver.length)}.</p>
   return <p className="mt-2 text-[14px]"><span className="font-semibold">{driver}.</span> <span className="t2">{first}.</span></p>
+}
+
+/** The driver you follow, first: their latest race and where they stand. Set with Follow on any driver's panel. */
+function YourDriver({ year, events }: { year: number; events: Event[] }) {
+  const { followed, setFollowed, hidden } = usePrefs()
+  const st = useFetch((s) => api.standings(year, s), [year], !!followed)
+  if (!followed) return null
+  const row = st.data?.drivers.find((d) => d.driver_id === followed.id)
+  const last = [...(st.data?.rounds ?? [])].reverse().find((r) => row?.results[String(r)])
+  const ev = events.find((e) => e.round === last)
+  const res = last != null ? row?.results[String(last)] : undefined
+  const secret = hidden(last)
+  const standingsHidden = (st.data?.rounds ?? []).some((r) => hidden(r))
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-5 pb-4 border-b text-[14px]" style={{ borderColor: 'var(--line)' }} aria-label="The driver you follow" role="region">
+      <span className="label">Following</span>
+      <span className="font-semibold">{followed.name}</span>
+      {row && ev && !secret && (
+        <Link to={`/race/${ev.id}/driver/${followed.ref}`} className="underline underline-offset-4">
+          {ev.name.replace(' Grand Prix', '')}: {res?.position ? `P${res.position}` : res?.status}
+        </Link>
+      )}
+      {row && ev && secret && <Link to={`/race/${ev.id}/driver/${followed.ref}`} className="underline underline-offset-4">{ev.name.replace(' Grand Prix', '')}: the race</Link>}
+      {row && !standingsHidden && <span className="t2">P{row.position} in the championship, {row.points % 1 ? row.points.toFixed(1) : row.points} points</span>}
+      <button type="button" className="btn-ghost text-[12px] ml-auto" onClick={() => setFollowed(null)}>Stop following</button>
+    </div>
+  )
 }

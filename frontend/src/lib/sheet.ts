@@ -1,4 +1,4 @@
-import type { PivotalMoment, RaceControlEvent, TrackOutline } from '../api/client'
+import type { Headline, PivotalMoment, RaceControlEvent, TrackOutline } from '../api/client'
 
 const PIT_MOMENTS = new Set(['pit_cycle', 'undercut', 'overcut', 'slow_stop'])
 
@@ -26,3 +26,10 @@ const KIND: Record<string, string> = {
 }
 /** A moment's kind in a word or two, for the margin notes beside the drawing (the full line is in Key moments). */
 export const momentKind = (t: string) => KIND[t] ?? t.replace(/_/g, ' ')
+
+/** A margin note: when, what, and whose ("Lap 11, retirement (Hadjar)"), so it reads without the drawing (#64). */
+export function marginText(m: PivotalMoment, drivers: Headline['drivers'] | undefined): string {
+  const who = m.driver_id != null ? drivers?.[String(m.driver_id)]?.name.split(' ').slice(-1)[0] : undefined
+  const text = [lapText(m), momentKind(m.moment_type)].filter(Boolean).join(', ') + (who ? ` (${who})` : '')
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}

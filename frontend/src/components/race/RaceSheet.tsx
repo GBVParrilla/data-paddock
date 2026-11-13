@@ -6,7 +6,7 @@ import { teamColor } from '../../lib/teamColors'
 import { Freshness } from '../Freshness'
 import { Term } from '../Glossary'
 import { TrackMap, type Pin } from '../TrackMap'
-import { lapText, momentKind, orderMoments, placeOf } from '../../lib/sheet'
+import { lapText, marginText, orderMoments, placeOf } from '../../lib/sheet'
 
 /** The title block: the drawing sheet's own device, in place of meta strings and stat chips. */
 function TitleBlock({ event, sessionType, headline, moments }: { event: EventRow; sessionType: SessionType; headline: Headline; moments: PivotalMoment[] }) {
@@ -76,7 +76,7 @@ export function RaceSheet({ event, outline, data }: { event: EventRow | null; ou
           {margin.length > 0 && (
             <ul className="mt-5 space-y-1 text-[12.5px] t2" aria-label="Key moments without a place on the drawing">
               {margin.map((p) => (
-                <li key={p.n} className="flex gap-2"><span className="num font-bold w-5 shrink-0" style={{ color: 'var(--ink)' }}>{p.n}</span><span>{[lapText(p.m), momentKind(p.m.moment_type)].filter(Boolean).join(', ')}</span></li>
+                <li key={p.n} className="flex gap-2" data-margin-moment={p.m.driver_id ?? 'session'}><span className="num font-bold w-5 shrink-0" style={{ color: 'var(--ink)' }}>{p.n}</span><span>{marginText(p.m, h?.drivers)}</span></li>
               ))}
             </ul>
           )}
